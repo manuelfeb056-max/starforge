@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>STARFORGE — La Forja Estelar</title>
+    <meta name="description" content="STARFORGE — scatter-pay 6×5 cosmic-forge casino game. Entry for Chain Jam Vol. 1." />
+    <script async src="https://jam.chain.wtf/widget.js"></script>
+    <script type="module" crossorigin src="./assets/index-C4uKpfqk.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-af8S-I59.css">
+  </head>
+  <body>
+    <div id="stage">
+      <canvas id="cv"></canvas>
+
+      <header id="topbar">
+        <div id="wordmark">STARFORGE<small id="tagline">LA FORJA ESTELAR</small></div>
+        <span class="pill"><span id="balance-label">Saldo</span>: <span id="balance-val">—</span></span>
+        <span class="pill" id="demo-badge" hidden>DEMO</span>
+        <button class="icon-btn" id="btn-sound" aria-label="toggle sound">🔊</button>
+        <button class="icon-btn" id="btn-info" aria-label="how to play">i</button>
+      </header>
+
+      <aside class="side" id="left">
+        <div class="panel-label" id="crucible-title">CRISOL</div>
+        <div id="crucible-stats">
+          <b id="essence-val">0.0</b> <span id="essence-label">esencia</span><br />
+          <span class="dim" id="next-artifact">—</span>
+        </div>
+        <div id="artifact-slots">
+          <div class="artifact-slot" data-key="brasa">
+            <svg class="art-icon" viewBox="0 0 48 48"><path d="M24 4 C24 4 10 20 10 30 a14 14 0 0 0 28 0 C38 20 24 4 24 4 Z" fill="#ff6b1a"/><path d="M24 18 C24 18 17 26 17 32 a7 7 0 0 0 14 0 C31 26 24 18 24 18 Z" fill="#fff7e6"/></svg>
+            <div><div class="art-name" id="art-name-brasa">Brasa</div><div class="art-desc" id="art-desc-brasa">+1 comodín por giro</div></div>
+          </div>
+          <div class="artifact-slot" data-key="yunque">
+            <svg class="art-icon" viewBox="0 0 48 48"><path d="M6 18 h36 v6 h-12 v10 h-8 v10 h-6 v-10 h-10 Z" fill="#9aa5b1"/><rect x="4" y="14" width="40" height="5" rx="2" fill="#c9d4e3"/></svg>
+            <div><div class="art-name" id="art-name-yunque">Yunque</div><div class="art-desc" id="art-desc-yunque">Pagos scatter ×1.25</div></div>
+          </div>
+          <div class="artifact-slot" data-key="temple">
+            <svg class="art-icon" viewBox="0 0 48 48"><path d="M24 6 C24 6 12 24 12 32 a12 12 0 0 0 24 0 C36 24 24 6 24 6 Z" fill="#22d3ee"/><path d="M18 32 a6 6 0 0 0 6 6" stroke="#fff7e6" stroke-width="2.5" fill="none" stroke-linecap="round"/></svg>
+            <div><div class="art-name" id="art-name-temple">Temple</div><div class="art-desc" id="art-desc-temple">Cascadas: 2 → 3</div></div>
+          </div>
+        </div>
+      </aside>
+
+      <aside class="side" id="right">
+        <div class="card">
+          <div class="panel-label" id="lastwin-label">ÚLTIMA VICTORIA</div>
+          <div id="last-win-val">—</div>
+        </div>
+        <div class="card">
+          <div class="panel-label" id="history-label">HISTORIAL</div>
+          <ul id="history-list"></ul>
+          <div class="empty-note" id="history-empty">Sin victorias aún — la forja espera.</div>
+        </div>
+      </aside>
+
+      <div id="bottombar">
+        <div id="bet-box">
+          <span class="bet-label" id="bet-label">APUESTA</span>
+          <button class="bet-btn" id="bet-minus" aria-label="decrease bet">−</button>
+          <div id="bet-val">5</div>
+          <button class="bet-btn" id="bet-plus" aria-label="increase bet">+</button>
+        </div>
+        <button id="btn-forge">FORJAR</button>
+        <span id="maxbet-note"></span>
+      </div>
+
+      <div id="paybadge"></div>
+      <div id="picks-status"></div>
+      <div id="banner"><div id="banner-title"></div><div id="banner-amount"></div><div id="banner-sub"></div></div>
+      <div id="toast"></div>
+
+      <div class="overlay" id="gamble-overlay">
+        <div class="gamble-card">
+          <h2 id="gamble-title">DOBLE O NADA</h2>
+          <p id="gamble-text">¿Apostar <b id="gamble-amount">×0</b>? 50/50: doble o nada.</p>
+          <div class="gamble-btns">
+            <button id="btn-collect">RECOGER</button>
+            <button id="btn-double">DOBLE</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="overlay" id="info-modal">
+        <div class="modal-card">
+          <div class="modal-head">
+            <h2 id="info-title">Cómo jugar</h2>
+            <button class="btn-ghost" id="info-close">✕</button>
+          </div>
+          <div id="info-body"></div>
+          <div class="modal-actions">
+            <button class="btn-ghost btn-danger" id="btn-reset-progress">Reiniciar progresión</button>
+            <button class="btn-ghost" id="lang-toggle">EN</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>
