@@ -1,0 +1,274 @@
+{
+  "caps": {
+    "maxPayoutX": 1000,
+    "rule": "Contract clamps total spin payout (grid + patterns + supernova incl. doubled picks) to 1000x wager."
+  },
+  "cascades": {
+    "cascadeCapBase": 2,
+    "note": "Star symbols are never removed and persist through cascades.",
+    "rule": "Winning minerals are removed; column gravity applies (survivors sink to the bottom of each column); new symbols drawn from base weights fill from the top. RNG consumed c=0..5, r=0..4. Repeat while there is any scatter win and steps < 2."
+  },
+  "constellations": {
+    "patterns": {
+      "cruz": {
+        "cells": [
+          [
+            2,
+            1
+          ],
+          [
+            2,
+            2
+          ],
+          [
+            2,
+            3
+          ],
+          [
+            1,
+            2
+          ],
+          [
+            3,
+            2
+          ]
+        ],
+        "pay_xbet": 2
+      },
+      "diamante": {
+        "cells": [
+          [
+            2,
+            0
+          ],
+          [
+            2,
+            4
+          ],
+          [
+            0,
+            2
+          ],
+          [
+            4,
+            2
+          ],
+          [
+            2,
+            2
+          ]
+        ],
+        "pay_xbet": 8
+      },
+      "equis": {
+        "cells": [
+          [
+            1,
+            1
+          ],
+          [
+            3,
+            3
+          ],
+          [
+            2,
+            2
+          ],
+          [
+            1,
+            3
+          ],
+          [
+            3,
+            1
+          ]
+        ],
+        "pay_xbet": 4
+      },
+      "herradura": {
+        "cells": [
+          [
+            1,
+            1
+          ],
+          [
+            1,
+            2
+          ],
+          [
+            1,
+            3
+          ],
+          [
+            2,
+            3
+          ],
+          [
+            3,
+            3
+          ]
+        ],
+        "pay_xbet": 15
+      }
+    },
+    "rule": "After scatter evaluation of each cascade step, check fixed coordinate sets (col,row) on the 6x5 grid. If ALL cells of a pattern hold the SAME mineral (star/wild excluded), pay the pattern bonus. Only the HIGHEST matching pattern pays per step."
+  },
+  "crucible": {
+    "artifacts": {
+      "brasa": {
+        "bit": 0,
+        "effect": "constellation pattern pays x1.25"
+      },
+      "yunque": {
+        "bit": 1,
+        "effect": "+5% on tier-3 (12+) scatter pays only (patterns/supernova unaffected)"
+      },
+      "temple": {
+        "bit": 2,
+        "effect": "supernova pick prizes +10%, applied to the pick sum at settlement (prizes array stores base values)"
+      }
+    },
+    "rule": "Every spin's TOTAL win (grid + patterns + supernova, in xbet units) adds essence to the crucible. Thresholds forge PERMANENT artifacts for the play session (persisted in localStorage; declared to the contract via gameData bitmask).",
+    "thresholds": {
+      "brasa": 25,
+      "temple": 150,
+      "yunque": 75
+    }
+  },
+  "encoding": {
+    "actionData": "6 raw bytes: [pick0..pick4, gambleFlag]. pickN in [0,11], all distinct. gambleFlag 0/1.",
+    "gameData": "1 raw byte: artifacts bitmask (bit0=brasa, bit1=yunque, bit2=temple). Contract validates <= 0x07.",
+    "gameState": "abi.encode(Reveal struct): stage, gridWinBps, artifacts, prizes[12], grids (stepCount*30 bytes), stepWins[], stepPats[], stepCount, picksBps, picks[5], gambleWin, totalBps. All wins in bps of wager (10000 = 1x)."
+  },
+  "game": "STARFORGE",
+  "grid": {
+    "cells": 30,
+    "cols": 6,
+    "rows": 5,
+    "indexing": "column-major: index = col*5 + row; column c occupies indices c*5..c*5+4; row 0 = top"
+  },
+  "note": "Single source of truth for math. The Solidity contract, the Python Monte Carlo simulator, and the frontend demo MUST implement these exact parameters.",
+  "randomness": {
+    "coinFlip": "byte % 2",
+    "forbidden": "never raw byte % n for n not dividing 256 (except n=2)",
+    "shuffleDraw": "per-range rejection: limit = floor(256/n)*n",
+    "symbolDraw": "uint16 rejection sampling: limit = floor(65536/122)*122 = 65514; reject v >= 65514; symbol = cumulative-weight lookup over 122"
+  },
+  "risk": {
+    "expectedPayout": "wager * 0.96",
+    "heavyTail": "maxPayout/wager = 1000 > 100 and probabilityWad 1e12 < 1e15 => tiered heavy-tail path applies",
+    "maxPayout": "wager * 1000",
+    "probabilityWad": "1e12 (conservative over-estimate of the 1000x-cap event probability; true value far smaller; documented in RTP_MATH.md)",
+    "subJackpotVarianceScaled": 0
+  },
+  "rtp": {
+    "fresh_10M": 0.93942,
+    "steady_10M": 0.97591,
+    "declared_bps": 9760,
+    "band": [
+      0.93,
+      0.98
+    ],
+    "artifact_spread": 0.0365
+  },
+  "scatterPay": {
+    "note": "Final tuned paytable (integer bps in contract). Verified by Monte Carlo; see docs/RTP_MATH.md.",
+    "paytable_xbet": {
+      "copper": [
+        0.165,
+        0.4125,
+        1.65
+      ],
+      "iron": [
+        0.2475,
+        0.66,
+        2.475
+      ],
+      "nickel": [
+        0.4125,
+        0.825,
+        3.3
+      ],
+      "silver": [
+        0.66,
+        1.2375,
+        4.95
+      ],
+      "gold": [
+        0.825,
+        2.0625,
+        8.25
+      ],
+      "platinum": [
+        1.65,
+        4.125,
+        16.5
+      ],
+      "neutronium": [
+        4.125,
+        9.9,
+        41.25
+      ]
+    },
+    "rule": "8+ of the same mineral anywhere on the grid pays. Tiers by count.",
+    "tiers": [
+      "8-9",
+      "10-11",
+      "12+"
+    ]
+  },
+  "supernova": {
+    "doubleOrNothing": {
+      "coinFlip": "first randomness byte % 2 (256 divisible by 2, no rejection needed)",
+      "rule": "After picks, player may gamble the pick sum ONCE: fair 50/50 (win = 2x picks, lose = 0). EV-neutral, pure volatility."
+    },
+    "expectedPickSum_xbet": 15.0,
+    "picks": {
+      "choose": 5,
+      "field": 12
+    },
+    "prizePoolSum": 36,
+    "prizePool_xbet": [
+      1,
+      1,
+      1,
+      2,
+      2,
+      2,
+      3,
+      3,
+      4,
+      5,
+      6,
+      6
+    ],
+    "shuffle": "Fisher-Yates with VRF-derived randomness (rejection sampling per range)",
+    "trigger": "4+ star symbols anywhere on the initial drop (stars in cascade refills do not retrigger)",
+    "temple_note": "Temple +10% is applied to picksBps sum in onPlayerAction, not to the prizes array (avoids uint16 overflow; mathematically identical as prizes are multiples of 10000)."
+  },
+  "symbols": {
+    "order": [
+      "copper",
+      "iron",
+      "nickel",
+      "silver",
+      "gold",
+      "platinum",
+      "neutronium",
+      "star"
+    ],
+    "totalWeight": 122,
+    "weights": {
+      "copper": 30,
+      "gold": 12,
+      "iron": 26,
+      "neutronium": 5,
+      "nickel": 22,
+      "platinum": 8,
+      "silver": 16,
+      "star": 3
+    },
+    "note": "No wild symbol in the final design."
+  },
+  "version": "1.0.0-mathspec"
+}
