@@ -99,7 +99,7 @@ function infoHTML(): string {
       <p>After each scatter evaluation these fixed formations are checked. If all 5 cells hold the <b>same mineral</b> (a star voids it), the bonus pays. Only the highest-value constellation pays per step.</p>
       <div class="patterns-grid">${patCards}</div>
       <h3>SUPERNOVA</h3>
-      <p><b>4+ stars on the initial drop</b> open the supernova: 12 stars hide prizes from ×1 to ×6 (sum 36; <b>×1.10</b> with Temper forged). You pick <b>5</b>. Then <b>collect</b> or risk the sum <b>double or nothing</b> (fair 50/50: ×2 or ×0).</p>
+      <p><b>4+ stars on the initial drop</b> open the supernova: 12 quantum cubes hide prizes from ×1 to ×6 (sum 36; <b>×1.10</b> with Temper forged). You pick <b>5</b>. Then <b>collect</b> or risk the sum <b>double or nothing</b> (fair 50/50: ×2 or ×0).</p>
       <h3>CRUCIBLE ARTIFACTS</h3>
       <p>Every spin adds its total win (in ×bet) as essence. Crossing a threshold forges a <b>permanent</b> session artifact:</p>
       <ul>${artRows}</ul>
