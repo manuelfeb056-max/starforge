@@ -14,6 +14,7 @@ import {
   finalizeSpin,
   gamble as gambleFlip,
   runSpin,
+  shufflePrizes,
   type ByteRng,
   type FinalizedSpin,
   type SpinResult,
@@ -449,6 +450,30 @@ export class Game {
       };
       void intro();
     });
+  }
+
+  /**
+   * Demo shortcut: jump straight into the supernova cinematic (?bonus=supernova).
+   * No spin, no bet deducted — pure showcase of the bonus round.
+   */
+  async demoSupernova(): Promise<void> {
+    if (this.state !== 'idle') return;
+    this.state = 'busy';
+    this.skipFlag = false;
+    this.cb.setBusy(true, this.S.forging);
+    this.cb.clearBanner();
+    const bet = this.bet;
+    const prizes = shufflePrizes(this.rng, this.artifacts);
+    const res = await this.presentSupernovaPicks(prizes);
+    const pickSumX = res.picks.reduce((s, i) => s + prizes[i]!, 0);
+    this.balance += pickSumX * bet;
+    this.cb.setBalance(this.balanceText());
+    this.cb.winBanner(2, this.S.supernova, `×${fmtX(pickSumX)}`, '');
+    await this.wait(1800);
+    this.cb.clearBanner();
+    this.cb.pushHistory({ bet, winX: pickSumX, win: pickSumX * bet, supernova: true });
+    this.state = 'idle';
+    this.cb.setBusy(false);
   }
 
   // --------------------------------------------------------------- demo spin

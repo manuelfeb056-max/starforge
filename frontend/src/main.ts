@@ -337,6 +337,12 @@ async function main(): Promise<void> {
     audio.button();
     $('welcome').classList.remove('show');
     driver?.reportSize();
+    // demo shortcut: ?bonus=supernova jumps straight into the bonus cinematic
+    try {
+      if (new URLSearchParams(location.search).get('bonus') === 'supernova') {
+        setTimeout(() => { void game.demoSupernova(); }, 600);
+      }
+    } catch { /* ignore */ }
   });
   $('lang-toggle').addEventListener('click', () => {
     audio.button();
