@@ -5,9 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <title>STARFORGE — La Forja Estelar</title>
     <meta name="description" content="STARFORGE — scatter-pay 6×5 cosmic-forge casino game. Entry for Chain Jam Vol. 1." />
+    <link rel="preload" as="image" href="./starforge-logo.png" />
     <script async src="https://jam.chain.wtf/widget.js"></script>
-    <script type="module" crossorigin src="./assets/index-C4uKpfqk.js"></script>
-    <link rel="stylesheet" crossorigin href="./assets/index-af8S-I59.css">
+    <script type="module" crossorigin src="./assets/index-DzpSQJcb.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-DHiYgjCR.css">
   </head>
   <body>
     <div id="stage">
@@ -16,6 +17,7 @@
       <header id="topbar">
         <div id="wordmark">STARFORGE<small id="tagline">LA FORJA ESTELAR</small></div>
         <span class="pill"><span id="balance-label">Saldo</span>: <span id="balance-val">—</span></span>
+        <span class="pill" id="rtp-pill" title="RTP 96.0%">RTP 96.0%</span>
         <span class="pill" id="demo-badge" hidden>DEMO</span>
         <button class="icon-btn" id="btn-sound" aria-label="toggle sound">🔊</button>
         <button class="icon-btn" id="btn-info" aria-label="how to play">i</button>
@@ -93,6 +95,16 @@
             <button class="btn-ghost btn-danger" id="btn-reset-progress">Reiniciar progresión</button>
             <button class="btn-ghost" id="lang-toggle">EN</button>
           </div>
+        </div>
+      </div>
+
+      <div class="overlay show" id="welcome">
+        <div class="welcome-card">
+          <img id="welcome-logo" src="./starforge-logo.png" alt="STARFORGE" />
+          <div id="welcome-tagline">LA FORJA ESTELAR</div>
+          <p id="welcome-note"></p>
+          <button id="btn-play">ENTRAR A LA FORJA</button>
+          <div class="welcome-rtp" id="welcome-rtp"></div>
         </div>
       </div>
     </div>
