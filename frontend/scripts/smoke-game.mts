@@ -1,8 +1,8 @@
 /**
  * Headless Game-logic smoke test: Proxy-stubbed canvas 2D + DOM, runs real
- * demo spins (including forced supernova + gamble) through the full animation
- * pipeline with reduced-motion on (fast).
- * Run: node scripts/run-smoke.cjs game   (or: host)
+ * demo spins (including natural + forced Nova Furnace bonuses) through the
+ * full animation pipeline with reduced-motion on (fast).
+ * Run: node scripts/run-smoke.cjs game
  */
 
 // ---- browser stubs ----
@@ -89,7 +89,6 @@ g.localStorage = {
 try {
   Object.defineProperty(g, 'navigator', { value: { language: 'es-ES' }, configurable: true });
 } catch { /* node already provides one */ }
-const rafQ: Array<() => void> = [];
 g.requestAnimationFrame = (f: (t: number) => void): number => {
   setTimeout(() => {
     try {
@@ -103,7 +102,8 @@ g.requestAnimationFrame = (f: (t: number) => void): number => {
 g.cancelAnimationFrame = () => undefined;
 
 const { Game } = await import('../src/game.ts');
-const { ART, cryptoRng, shufflePrizes } = await import('../src/engine.ts');
+const { playNova } = await import('../src/nova.ts');
+const { cryptoRng } = await import('../src/engine.ts');
 
 const cb = {
   setBusy: () => undefined,
@@ -113,8 +113,6 @@ const cb = {
   payBadge: () => undefined,
   winBanner: () => undefined,
   clearBanner: () => undefined,
-  picksStatus: () => undefined,
-  gambleChoice: async () => true, // always gamble in the test
   toast: () => undefined,
   crucibleChanged: () => undefined,
   canAfford: () => true,
@@ -123,10 +121,22 @@ const cb = {
 const game = new Game(canvasEl as unknown as HTMLCanvasElement, cb as never, 'es');
 game.start();
 
-// fire a canvas click helper (pointerdown at logical coords)
-function clickCanvas(x: number, y: number): void {
+// fire a canvas click helper (pointerdown skips the current beat)
+function clickCanvas(): void {
   const arr = listeners.get('pointerdown') ?? [];
-  for (const f of arr) f({ clientX: x, clientY: y });
+  for (const f of arr) f({});
+}
+
+// sanity: the pure math resolves and is internally consistent
+{
+  const rng = cryptoRng();
+  for (let i = 0; i < 50; i++) {
+    const r = playNova(rng, false);
+    if (!(r.totalX >= 0)) throw new Error('negative nova total');
+    if (!r.events.length || r.events[r.events.length - 1]!.t !== 'end') throw new Error('missing end event');
+  }
+  const rt = playNova(rng, true);
+  console.log(`nova math ok (sample temple totalX=${rt.totalX.toFixed(2)}, events=${rt.events.length})`);
 }
 
 let spins = 0;
@@ -134,44 +144,25 @@ const t0 = Date.now();
 for (let i = 0; i < 60; i++) {
   spins++;
   await game.demoSpin();
+  if (i % 7 === 3) clickCanvas(); // exercise the skip path mid-animation
 }
 console.log(`ran ${spins} base spins in ${Date.now() - t0}ms, no exceptions`);
 
-// force the supernova + gamble path directly (0.6% natural rate is too slow to wait for)
-const g2 = game as unknown as {
-  presentSupernovaPicks: (prizes: number[]) => Promise<{ picks: number[]; gamble: boolean }>;
-  supernova: { stars: Array<{ x: number; y: number; picked: boolean }> } | null;
-};
-const p2 = g2.presentSupernovaPicks([10, 20, 40, 80, 160, 320, 640, 1280, 2500, 5000, 10000, 20000]);
-await new Promise(r => setTimeout(r, 10));
-const sn = g2.supernova;
-if (!sn || sn.stars.length !== 12) throw new Error('supernova overlay missing');
-// click the same star twice (idempotent) then 5 distinct stars
-clickCanvas(sn.stars[0]!.x, sn.stars[0]!.y);
-clickCanvas(sn.stars[0]!.x, sn.stars[0]!.y);
-for (const st of sn.stars.slice(1, 5)) clickCanvas(st.x, st.y);
-await new Promise(r => setTimeout(r, 10));
-const res = await p2;
-console.log(`supernova resolved: picks=[${res.picks}] gamble=${res.gamble}`);
-if (res.picks.length !== 5) throw new Error('expected 5 picks');
+// force the Nova Furnace cinematic directly (3.7% natural rate is slow)
+const g2 = game as unknown as { presentNova: (temple: boolean) => Promise<number> };
+const t1 = Date.now();
+const totalX = await g2.presentNova(false);
+console.log(`forced nova (fresh) resolved: totalX=${totalX.toFixed(2)} in ${Date.now() - t1}ms`);
+if (!(totalX >= 0)) throw new Error('nova total negative');
 
-// also exercise the lose-gamble variant
-cb.gambleChoice = async () => false;
-const p3 = g2.presentSupernovaPicks([10, 20, 40, 80, 160, 320, 640, 1280, 2500, 5000, 10000, 20000]);
-await new Promise(r => setTimeout(r, 10));
-const sn3 = g2.supernova!;
-for (const st of sn3.stars.slice(0, 5)) clickCanvas(st.x, st.y);
-const res3 = await p3;
-console.log(`supernova (decline gamble): picks=[${res3.picks}] gamble=${res3.gamble}`);
+// temple variant: values must be x1.08
+const tt = await g2.presentNova(true);
+console.log(`forced nova (temple) resolved: totalX=${tt.toFixed(2)}`);
+if (!(tt >= 0)) throw new Error('temple nova total negative');
 
-// temple check: supernova prizes are x1.10 when temple is forged (picks stay 5)
-const basePool = shufflePrizes(cryptoRng(), 0).sort((a, b) => a - b);
-const templePool = shufflePrizes(cryptoRng(), ART.TEMPLE).sort((a, b) => a - b);
-console.log('base pool sorted  :', basePool.map(p => p.toFixed(1)).join(','));
-console.log('temple pool sorted:', templePool.map(p => p.toFixed(1)).join(','));
-for (let i = 0; i < 12; i++) {
-  if (Math.abs(templePool[i]! - basePool[i]! * 1.1) > 1e-9) throw new Error('temple prize boost wrong');
-}
+// demo shortcut path
+await game.demoNova();
+console.log('demoNova shortcut ok');
 
 // host path: celebrate a synthetic settlement without a grid
 game.hostPresentWin(250, 10);

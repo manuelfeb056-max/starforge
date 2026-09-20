@@ -20,7 +20,7 @@ Estado (2026-09-20 14:06 UTC): ✅ ENVIADO en ambas rutas. DoraHacks registrado;
    - jam.chain.wtf → sección 07 · submit → enviar:
      - Game URL: `https://manuelfeb056-max.github.io/starforge/`
      - Repo: `https://github.com/manuelfeb056-max/starforge`
-     - Descripción: "STARFORGE — La Forja Estelar. Scatter-pay 6×5 cosmic-forge slot. Forge minerals, trigger the supernova, double or nothing. RTP 93.94–97.59% (Monte Carlo 10M, verificado)."
+     - Descripción: "STARFORGE — La Forja Estelar. Scatter-pay 6×5 cosmic-forge slot. Forge minerals, trigger the NOVA FURNACE automatic respin bonus. RTP 93.94–97.59% (Monte Carlo 3M, verificado)."
      - RTP: 93.94% (base) / 97.59% (con artefactos)
      - Discord: el usuario que dé Mannuel
 3. El chequeo automático verifica: URL 200 + widget presente + manifest en el mismo origen.

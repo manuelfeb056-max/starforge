@@ -192,58 +192,6 @@ class AudioEngine {
     this.tone({ freq: 2093, type: 'sine', peak: 0.06, decay: 0.9, delay: 0.16 });
   }
 
-  /** Supernova: sawtooth riser 200->2000Hz + explosion. */
-  supernova(): void {
-    this.tone({ freq: 200, freqEnd: 2000, type: 'sawtooth', peak: 0.16, attack: 0.6, decay: 0.1 });
-    this.noise({ peak: 0.4, attack: 0.01, decay: 0.9, filterFreq: 6000, filterEnd: 120, delay: 0.55 });
-    this.tone({ freq: 90, freqEnd: 30, type: 'sine', peak: 0.5, attack: 0.01, decay: 1.0, delay: 0.55 });
-  }
-
-  /** Pick ping; pitch rises with prize size. */
-  pick(prizeX: number): void {
-    const freq = 880 * Math.pow(2, Math.min(prizeX, 6) / 6);
-    this.tone({ freq, type: 'sine', peak: 0.25, decay: 0.4 });
-    this.tone({ freq: freq * 2, type: 'sine', peak: 0.1, decay: 0.3 });
-  }
-
-  /** Quantum cube destabilize — energy glitch zap + shatter burst. */
-  cubeBreak(): void {
-    this.noise({ peak: 0.3, attack: 0.002, decay: 0.12, filterFreq: 3200, filterEnd: 500, filterType: 'bandpass', q: 2.2 });
-    this.tone({ freq: 180, freqEnd: 2400, type: 'sawtooth', peak: 0.14, attack: 0.005, decay: 0.22 });
-    this.tone({ freq: 90, freqEnd: 36, type: 'sine', peak: 0.4, attack: 0.004, decay: 0.5 });
-  }
-
-  /** Quantum cube reveal — rising chime arpeggio, brighter for bigger prizes. */
-  cubeReveal(prizeX: number): void {
-    const base = 659.25 * Math.pow(2, Math.min(prizeX, 12) / 24);
-    const notes = [0, 4, 7, 12, 16, 19];
-    notes.forEach((s, i) => {
-      this.tone({
-        freq: base * Math.pow(2, s / 12),
-        type: i % 2 ? 'triangle' : 'sine',
-        peak: 0.2,
-        decay: 0.55,
-        delay: i * 0.055,
-      });
-    });
-    this.tone({ freq: base * 4, type: 'sine', peak: 0.07, decay: 1.0, delay: 0.33 });
-    // music-bus accent so the reveal breathes with the track
-    this.snAccent(base * 2, 0.5);
-  }
-
-  // ---------------------------------------------------------------
-  // adaptive supernova music — 100% synthesized WebAudio, no assets.
-  // Dark dimensional pad + sub pulse at entry; every pick adds a
-  // brighter, denser layer; reveal hits accent the bus; the 5th pick
-  // triggers the drop and the track fades back out.
-  // ---------------------------------------------------------------
-  private snBus: GainNode | null = null;
-  private snTimer: ReturnType<typeof setTimeout> | null = null;
-  private snLayers = 0;
-  private snBar = 0;
-  private snStopped = false;
-
-  /** Route a tone into an arbitrary destination gain (the music bus). */
   private btone(
     dest: GainNode,
     opts: {
@@ -295,133 +243,200 @@ class AudioEngine {
     src.stop(t + dur);
   }
 
-  /** Enter the other universe: dark pad + sub pulse + rising shimmer. */
-  supernovaMusicStart(): void {
+  // ---------------------------------------------------------------
+  // NOVA FURNACE — adaptive furnace score. 100% synthesized WebAudio.
+  // Dark molten drone + heartbeat that quickens as respins run out;
+  // specials detonate the drop; the finale lands the fanfare.
+  // ---------------------------------------------------------------
+  private nvBus: GainNode | null = null;
+  private nvTimer: ReturnType<typeof setTimeout> | null = null;
+  private nvTension = 0; // 0..1 — rises as respinsLeft falls
+  private nvStopped = false;
+  private nvBar = 0;
+
+  /** Dimensional entry: the universe tears open. */
+  novaEntry(): void {
+    // collapse riser
+    this.tone({ freq: 90, freqEnd: 900, type: 'sawtooth', peak: 0.14, attack: 0.85, decay: 0.15 });
+    this.tone({ freq: 45, freqEnd: 450, type: 'triangle', peak: 0.16, attack: 0.85, decay: 0.15 });
+    this.noise({ peak: 0.1, attack: 0.8, decay: 0.2, filterFreq: 600, filterEnd: 5000, filterType: 'bandpass', q: 1.4 });
+    // detonation
+    this.noise({ peak: 0.45, attack: 0.005, decay: 0.9, filterFreq: 6500, filterEnd: 100, delay: 0.85 });
+    this.tone({ freq: 110, freqEnd: 26, type: 'sine', peak: 0.55, attack: 0.005, decay: 1.2, delay: 0.85 });
+    this.tone({ freq: 880, freqEnd: 1760, type: 'triangle', peak: 0.12, attack: 0.01, decay: 0.7, delay: 0.9 });
+  }
+
+  /** Start the furnace drone. Call once the chamber materializes. */
+  novaMusicStart(): void {
     if (!this.ctx || !this.master) return;
-    this.supernovaMusicStop();
-    this.snStopped = false;
-    this.snLayers = 0;
-    this.snBar = 0;
+    this.novaMusicStop();
+    this.nvStopped = false;
+    this.nvTension = 0;
+    this.nvBar = 0;
     const bus = this.ctx.createGain();
     bus.gain.value = 0;
-    bus.gain.setTargetAtTime(0.42, this.now(), 0.9);
+    bus.gain.setTargetAtTime(0.4, this.now(), 1.2);
     bus.connect(this.master);
-    this.snBus = bus;
-    this.snScheduleBar();
+    this.nvBus = bus;
+    this.nvScheduleBar();
   }
 
-  /** Each pick adds a brighter, denser layer to the track. */
-  supernovaMusicLayer(picks: number): void {
-    this.snLayers = Math.max(0, Math.min(5, picks));
+  /** 0 = calm (3 respins), 1 = critical (1 respin left). */
+  novaMusicTension(k: number): void {
+    this.nvTension = Math.max(0, Math.min(1, k));
   }
 
-  private snScheduleBar(): void {
-    if (!this.ctx || !this.snBus || this.snStopped) return;
-    const bus = this.snBus;
-    const L = this.snLayers;
-    const bar = 2.2;
-    // dark dimensional pad: A minor-ish cluster, detuned saws
-    const padNotes = [55, 82.41, 110, 130.81, 164.81];
-    for (const f of padNotes) {
-      this.btone(bus, { freq: f * 1.003, freqEnd: f * 0.998, type: 'sawtooth', peak: 0.05, attack: 1.0, decay: bar - 0.8, delay: 0 });
-      this.btone(bus, { freq: f * 0.997, type: 'triangle', peak: 0.045, attack: 1.1, decay: bar - 0.9, delay: 0.05 });
+  private nvScheduleBar(): void {
+    if (!this.ctx || !this.nvBus || this.nvStopped) return;
+    const bus = this.nvBus;
+    const T = this.nvTension;
+    const bar = 2.4;
+    // molten drone: detuned low saws + sub
+    for (const f of [55, 55.6, 82.4, 110.3]) {
+      this.btone(bus, { freq: f, freqEnd: f * 0.99, type: 'sawtooth', peak: 0.035 + T * 0.02, attack: 1.2, decay: bar - 1, delay: 0 });
     }
-    // sub pulse: 4 heartbeat thumps per bar
-    for (let i = 0; i < 4; i++) {
-      this.btone(bus, { freq: 58, freqEnd: 36, type: 'sine', peak: 0.3, attack: 0.004, decay: 0.2, delay: i * (bar / 4) });
-    }
-    // sparkle arp: denser + brighter with every pick
-    const arpBase = 220 * Math.pow(2, L / 6);
-    const penta = [0, 3, 5, 7, 10, 12, 15, 17, 19, 22, 24];
-    const n = 3 + L * 2;
-    for (let i = 0; i < n; i++) {
-      const st = penta[i % penta.length]! + 12 * Math.floor(i / penta.length);
+    this.btone(bus, { freq: 36.7, freqEnd: 34, type: 'sine', peak: 0.22, attack: 0.8, decay: bar - 0.6 });
+    // heartbeat: quickens + brightens with tension (3 -> 6 thumps per bar)
+    const beats = 3 + Math.round(T * 3);
+    for (let i = 0; i < beats; i++) {
       this.btone(bus, {
-        freq: arpBase * Math.pow(2, st / 12),
-        type: i % 2 ? 'sine' : 'triangle',
-        peak: 0.055 + L * 0.012,
+        freq: 64 + T * 30,
+        freqEnd: 30,
+        type: 'sine',
+        peak: 0.26 + T * 0.12,
         attack: 0.004,
-        decay: 0.32,
-        delay: (i / n) * bar,
+        decay: 0.22,
+        delay: (i / beats) * bar,
       });
     }
-    // rising shimmer edge that grows with tension
-    this.bnoise(bus, { peak: 0.02 + L * 0.012, attack: bar * 0.7, decay: 0.3, filterFreq: 1200, filterEnd: 4200 + L * 700, filterType: 'bandpass', q: 1.4 });
-    // every 4th bar: a sweep riser into the next cycle
-    if (this.snBar % 4 === 3) {
-      this.btone(bus, { freq: 180, freqEnd: 1500, type: 'sawtooth', peak: 0.05, attack: bar * 0.75, decay: 0.25 });
+    // ember crackle bed
+    this.bnoise(bus, {
+      peak: 0.03 + T * 0.05,
+      attack: 0.4,
+      decay: bar - 0.4,
+      filterFreq: 2400,
+      filterEnd: 5200,
+      filterType: 'highpass',
+      q: 0.7,
+    });
+    // every 2nd bar: distant forge hammer
+    if (this.nvBar % 2 === 1) {
+      this.btone(bus, { freq: 140, freqEnd: 70, type: 'triangle', peak: 0.1, attack: 0.005, decay: 0.3, delay: bar * 0.5 });
+      this.bnoise(bus, { peak: 0.08, decay: 0.12, filterFreq: 3000, filterType: 'bandpass', q: 2, delay: bar * 0.5 });
     }
-    this.snBar++;
-    this.snTimer = setTimeout(() => this.snScheduleBar(), bar * 1000);
+    this.nvBar++;
+    this.nvTimer = setTimeout(() => this.nvScheduleBar(), bar * 1000);
   }
 
-  /** Accent on the music bus when a prize reveals. */
-  private snAccent(freq: number, peak: number): void {
-    if (!this.snBus || this.snStopped) return;
-    this.btone(this.snBus, { freq, type: 'sine', peak, attack: 0.004, decay: 0.5 });
-    this.btone(this.snBus, { freq: freq * 1.5, type: 'triangle', peak: peak * 0.6, attack: 0.004, decay: 0.4, delay: 0.05 });
-  }
-
-  /** The drop: all 5 picked — the track detonates, then fades out. */
-  supernovaMusicDrop(): void {
-    if (!this.ctx) return;
-    const dest = this.snBus && !this.snStopped ? this.snBus : this.master;
-    if (!dest) return;
-    // chord stab: dark A minor add9
-    const stab = [110, 130.81, 164.81, 220, 261.63, 329.63];
-    for (const f of stab) {
-      this.btone(dest, { freq: f, type: 'sawtooth', peak: 0.11, attack: 0.008, decay: 1.7 });
-      this.btone(dest, { freq: f * 2.001, type: 'sine', peak: 0.05, attack: 0.008, decay: 1.4, delay: 0.02 });
+  /** Hard stop the furnace score. */
+  novaMusicStop(): void {
+    this.nvStopped = true;
+    if (this.nvTimer) {
+      clearTimeout(this.nvTimer);
+      this.nvTimer = null;
     }
-    // sub detonation
-    this.btone(dest, { freq: 64, freqEnd: 27, type: 'sine', peak: 0.55, attack: 0.006, decay: 1.5 });
-    // airy crash
-    this.bnoise(dest, { peak: 0.2, attack: 0.005, decay: 1.3, filterFreq: 5200, filterEnd: 9000, filterType: 'highpass' });
-    // celebratory run up the octave
-    const run = [440, 523.25, 659.25, 783.99, 880, 1046.5, 1318.5, 1760];
-    run.forEach((f, i) => this.btone(dest, { freq: f, type: 'triangle', peak: 0.14, decay: 0.5, delay: 0.15 + i * 0.075 }));
-    // fade the bus back out — we crossed back to the base universe
-    if (this.snBus && !this.snStopped) {
-      const bus = this.snBus;
-      const t = this.now();
-      bus.gain.cancelScheduledValues(t);
-      bus.gain.setTargetAtTime(0, t + 1.4, 0.5);
-    }
-    this.snStopped = true;
-    if (this.snTimer) {
-      clearTimeout(this.snTimer);
-      this.snTimer = null;
-    }
-  }
-
-  /** Hard stop the supernova track (e.g. leaving the bonus early). */
-  supernovaMusicStop(): void {
-    this.snStopped = true;
-    if (this.snTimer) {
-      clearTimeout(this.snTimer);
-      this.snTimer = null;
-    }
-    if (this.snBus && this.ctx) {
-      const bus = this.snBus;
+    if (this.nvBus && this.ctx) {
+      const bus = this.nvBus;
       const t = this.now();
       try {
         bus.gain.cancelScheduledValues(t);
-        bus.gain.setTargetAtTime(0, t, 0.15);
+        bus.gain.setTargetAtTime(0, t, 0.2);
         setTimeout(() => {
           try { bus.disconnect(); } catch { /* already gone */ }
-        }, 900);
+        }, 1100);
       } catch { /* ignore */ }
     }
-    this.snBus = null;
+    this.nvBus = null;
   }
 
-  gambleWin(): void {
-    const notes = [523.25, 659.25, 783.99, 1046.5];
-    notes.forEach((f, i) => this.tone({ freq: f, type: 'triangle', peak: 0.22, decay: 0.4, delay: i * 0.09 }));
+  /** Each respin: molten whoosh; pitch climbs as respins run low. */
+  novaRespin(left: number): void {
+    const urgency = 1 - left / 3; // 0..0.67
+    this.noise({ peak: 0.16, attack: 0.08, decay: 0.4, filterFreq: 500 + urgency * 900, filterEnd: 3800, filterType: 'bandpass', q: 1.1 });
+    this.tone({ freq: 180 + urgency * 320, freqEnd: 90, type: 'triangle', peak: 0.1, attack: 0.05, decay: 0.35 });
+    if (left <= 1) {
+      // critical heartbeat warning
+      this.tone({ freq: 220, type: 'square', peak: 0.06, decay: 0.09 });
+      this.tone({ freq: 220, type: 'square', peak: 0.06, decay: 0.09, delay: 0.16 });
+    }
   }
 
-  gambleLose(): void {
-    this.tone({ freq: 330, freqEnd: 110, type: 'triangle', peak: 0.2, attack: 0.02, decay: 0.6 });
+  /** Energy core lands: molten thud + chime pitched by value. */
+  novaCoreLand(value: number): void {
+    this.tone({ freq: 95, freqEnd: 42, type: 'sine', peak: 0.4, attack: 0.004, decay: 0.3 });
+    this.noise({ peak: 0.14, decay: 0.12, filterFreq: 2800, filterType: 'bandpass', q: 1.8 });
+    const f = 660 * Math.pow(2, Math.min(value, 10) / 14);
+    this.tone({ freq: f, type: 'triangle', peak: 0.16, decay: 0.4, delay: 0.03 });
+    this.tone({ freq: f * 1.5, type: 'sine', peak: 0.08, decay: 0.5, delay: 0.08 });
+  }
+
+  /** A special core drops: the moment before the wow. */
+  novaSpecial(kind: 'collector' | 'payer' | 'sniper'): void {
+    this.tone({ freq: 150, freqEnd: 1200, type: 'sawtooth', peak: 0.12, attack: 0.28, decay: 0.1 });
+    const base = kind === 'collector' ? 98 : kind === 'payer' ? 130.8 : 164.8;
+    this.tone({ freq: base, freqEnd: base / 2, type: 'sine', peak: 0.4, attack: 0.005, decay: 0.5, delay: 0.28 });
+    this.noise({ peak: 0.2, decay: 0.3, filterFreq: 4000, filterEnd: 400, delay: 0.28 });
+  }
+
+  /** Lightning crackle (collector). */
+  novaZap(): void {
+    for (let i = 0; i < 4; i++) {
+      this.noise({
+        peak: 0.22,
+        attack: 0.002,
+        decay: 0.07,
+        filterFreq: 3600 + Math.random() * 2400,
+        filterType: 'bandpass',
+        q: 3,
+        delay: i * 0.055,
+      });
+    }
+    this.tone({ freq: 1800, freqEnd: 200, type: 'sawtooth', peak: 0.08, decay: 0.25 });
+  }
+
+  /** Laser zap (sniper). */
+  novaLaser(): void {
+    this.tone({ freq: 2400, freqEnd: 300, type: 'square', peak: 0.1, attack: 0.002, decay: 0.16 });
+    this.tone({ freq: 1567, type: 'sine', peak: 0.12, decay: 0.3, delay: 0.1 });
+  }
+
+  /** Expanding shockwave (payer). */
+  novaShockwave(): void {
+    this.tone({ freq: 70, freqEnd: 30, type: 'sine', peak: 0.5, attack: 0.008, decay: 0.8 });
+    this.noise({ peak: 0.2, attack: 0.01, decay: 0.6, filterFreq: 900, filterEnd: 5200, filterType: 'bandpass', q: 1 });
+    this.tone({ freq: 523.25, type: 'triangle', peak: 0.1, decay: 0.7, delay: 0.12 });
+    this.tone({ freq: 783.99, type: 'triangle', peak: 0.1, decay: 0.8, delay: 0.22 });
+  }
+
+  /** The finale: forged-brass fanfare + timpani + shimmer run. */
+  novaFanfare(): void {
+    // stop the drone first — the fanfare takes the room
+    this.novaMusicStop();
+    const dest = this.master;
+    if (!this.ctx || !dest) return;
+    // brass-ish stack: D minor -> G -> D (i-iv-i), long swells
+    const chords: Array<[number, number[]]> = [
+      [0, [146.83, 174.61, 220, 293.66]],
+      [0.9, [196, 233.08, 293.66, 392]],
+      [1.8, [146.83, 174.61, 220, 293.66, 440]],
+    ];
+    for (const [delay, notes] of chords) {
+      for (const f of notes) {
+        this.btone(dest, { freq: f * 1.002, type: 'sawtooth', peak: 0.07, attack: 0.25, decay: 1.1, delay });
+        this.btone(dest, { freq: f * 0.998, type: 'sawtooth', peak: 0.07, attack: 0.25, decay: 1.1, delay });
+        this.btone(dest, { freq: f / 2, type: 'triangle', peak: 0.06, attack: 0.2, decay: 1.2, delay });
+      }
+    }
+    // timpani
+    for (let i = 0; i < 6; i++) {
+      this.btone(dest, { freq: 68 - i * 3, freqEnd: 40, type: 'sine', peak: 0.4, attack: 0.004, decay: 0.4, delay: i * 0.42 });
+    }
+    // shimmer run up
+    const run = [587.33, 698.46, 880, 1046.5, 1174.66, 1396.91, 1760, 2093];
+    run.forEach((f, i) => this.btone(dest, { freq: f, type: 'triangle', peak: 0.12, decay: 0.6, delay: 0.4 + i * 0.09 }));
+    // final detonation of joy
+    this.bnoise(dest, { peak: 0.25, attack: 0.005, decay: 1.4, filterFreq: 6000, filterEnd: 10000, filterType: 'highpass', delay: 2.6 });
+    this.btone(dest, { freq: 73.42, freqEnd: 36.7, type: 'sine', peak: 0.5, attack: 0.005, decay: 1.6, delay: 2.6 });
   }
 
   button(): void {

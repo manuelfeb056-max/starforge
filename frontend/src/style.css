@@ -197,7 +197,7 @@ body {
 }
 #history-list li .hx { color: var(--cyan); }
 #history-list li .hw { color: var(--ember); font-weight: 700; }
-#history-list li.sn { border-left-color: var(--molten); }
+#history-list li.nv { border-left-color: var(--molten); }
 .empty-note { color: var(--muted); font-size: 1.5cqh; text-align: center; padding: 1cqh; }
 
 /* ---------------- bottom bar ---------------- */

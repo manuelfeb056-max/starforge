@@ -2,7 +2,7 @@
 
 **What:** casino game entry for Chain Jam Vol. 1. Scatter-pay 6×5 slot, cosmic-forge theme.
 **Stack:** Vite + vanilla TypeScript + Canvas 2D (no frameworks, no Phaser — full control, tiny bundle, near-instant load = eligibility criterion).
-**Math:** single source of truth = `~/workspace/chain-jam/starforge/math-spec.json`. READ IT FIRST. Implement its exact parameters (weights, paytable, patterns, supernova, cascades, artifacts). The demo RNG must use the same parameters as the contract.
+**Math:** single source of truth = `~/workspace/chain-jam/starforge/math-spec.json`. READ IT FIRST. Implement its exact parameters (weights, paytable, patterns, nova furnace, cascades, artifacts). The demo RNG must use the same parameters as the contract.
 **SDK bridge:** vendor `src/types.ts`, `src/guest.ts`, `src/manifest.ts` from `/tmp/chain-sdk/casino-sdk/src/` into `frontend/src/sdk/` (same exports). `npm i penpal`. Do NOT add viem — gameData/actionData are raw bytes (see encoding below), hand-encode them.
 **Workdir:** `~/workspace/chain-jam/starforge/frontend/`
 
@@ -26,7 +26,7 @@
 
 **Crucible (left panel):** vertical vessel with liquid metal (animated sine-wave surface, orange gradient, glow). Fill = essence progress to next artifact. On forge: hammer-strike flash + screen shake + artifact icon ignites.
 
-**Supernova overlay:** full-screen starfield zoom (stars streak outward), 12 stars in a 4×3 arc formation, each a glowing point that "collapses" (scale + flash + shockwave ring) when picked, revealing the prize.
+**NOVA FURNACE overlay:** dimensional rift entry (radial zoom + collapse, no fade), a 5×4 iron forge chamber; star cores slam in with bounce + shockwave, molten aura, plasma arcs; Collector fires individual beams to every core, Sniper takes aim with crosshair + laser, Payer detonates an expanding shockwave; finale = total count-up + big-win shockwaves.
 
 ## 2. Layout (1280×800 logical, responsive scale)
 
@@ -42,8 +42,8 @@
 - Symbol drop: staggered fall with slight bounce (easeOutBack), 40ms stagger per cell, column by column.
 - Win: paying symbols pulse 2× then dissolve into upward ember particles; payline count badge pops.
 - Cascade: remaining symbols slide down with gravity ease; new ones drop from top.
-- Artifact events: Yunque → anvil slam on tier-3 (12+) scatter wins (screen shake 6px, 150ms, deep thunk); Brasa → boosted constellation burns brighter (extra ember burst + ignite whoosh); Temple → supernova prizes ×1.10.
-- Supernova trigger: 4+ stars → white flash → zoom into starfield.
+- Artifact events: Yunque → anvil slam on tier-3 (12+) scatter wins (screen shake 6px, 150ms, deep thunk); Brasa → boosted constellation burns brighter (extra ember burst + ignite whoosh); Temple → nova core values ×1.08.
+- Nova Furnace trigger: 3+ stars → dimensional rift → the furnace chamber.
 - Anticipation: when 3 stars land, 4th+ reel positions shimmer.
 - All animations must be skippable (click) and respect `prefers-reduced-motion`.
 
@@ -54,7 +54,7 @@ Create `src/audio.ts` with a tiny synth: master gain + mute. Sounds (all oscilla
 - `win`: pentatonic chime arpeggio (sine + triangle, notes from win tier).
 - `cascade`: rising whoosh (noise sweep up).
 - `forge`: deep metallic thunk (low sine 55Hz + noise burst) + shimmer.
-- `supernova`: riser (sawtooth sweep 200→2000Hz) + explosion (noise burst + sub drop).
+- `nova furnace`: synthesized WebAudio score — dimensional entry tear, molten drone + quickening heartbeat as respins run out, distinct Collector/Payer/Sniper hits, finale fanfare.
 - `pick`: crystalline ping (pitch by prize size).
 - `gambleWin` / `gambleLose`: triumphant major arp / muted descending tone.
 - `button`: soft click. `lose`: very subtle low thud (don't punish).
@@ -73,13 +73,13 @@ Create `src/audio.ts` with a tiny synth: master gain + mute. Sounds (all oscilla
 - `observeGameContentSize` / `reportGameContentSize` for iframe sizing.
 
 **Engine (`src/engine.ts`):** pure functions, no DOM:
-`drawGrid(rng, artifacts) -> Uint8Array(30)`, `evaluateStep(grid, artifacts) -> {wins, patterns, stars}`, `runSpin(rng, artifacts, wager) -> SpinResult {totalWinX, steps:[...], supernova:{prizes} | null}`, `supernovaPicks(prizes, picks) -> sum`, `gamble(rng) -> bool`. The demo UI calls these; the SAME file documents the contract's algorithm. Include the rejection-sampling RNG helpers.
+`drawGrid(rng, artifacts) -> Uint8Array(30)`, `evaluateStep(grid, artifacts) -> {wins, patterns, stars}`, `runSpin(rng, artifacts, wager) -> SpinResult {totalWinX, steps:[...], nova: boolean}`, `playNova(rng, temple) -> {totalX, events}` (frontend/src/nova.ts). The demo UI calls these. Include the rejection-sampling RNG helpers.
 
 **Crucible (play-session progression):** `src/crucible.ts` — localStorage `starforge-crucible-v1`: {essence, forged:[bool,bool,bool]}. Essence += totalWinX each spin. On threshold cross → forge animation + set bit. Bitmask → gameData byte AND demo engine artifacts. Reset button in the "i" panel ("Reiniciar progresión").
 
 ## 6. Info panel ("i")
 
-Overlay explaining in ES/EN (locale from snapshot or browser): how scatter pays work, paytable table (all 7 minerals × 3 tiers), constellation patterns with mini diagrams, supernova rules + fair double-or-nothing note, artifacts, **RTP 96.0% (steady state) / ≥93% fresh**, "demo uses the same math as the on-chain contract", provably-fair note.
+Overlay explaining in ES/EN (locale from snapshot or browser): how scatter pays work, paytable table (all 7 minerals × 3 tiers), constellation patterns with mini diagrams, nova furnace rules (3+ stars, respins, collector/payer/sniper), artifacts, **RTP 97.3% steady / 94.1% fresh (3M Monte Carlo)**, "demo uses the same math as the on-chain contract", provably-fair note.
 
 ## 7. Required integrations
 

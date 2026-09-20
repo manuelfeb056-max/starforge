@@ -6,19 +6,25 @@ import {
   ART,
   CELLS,
   COLS,
+  NOVA_TRIGGER_STARS,
   ROWS,
   SYM,
   countStars,
   cryptoRng,
   drawGrid,
   finalizeSpin,
-  gamble as gambleFlip,
   runSpin,
-  shufflePrizes,
   type ByteRng,
   type FinalizedSpin,
   type SpinResult,
 } from './engine';
+import {
+  NOVA_START_RESPINS,
+  playNova,
+  type NovaEvent,
+  type NovaKind,
+  type NovaResult,
+} from './nova';
 import {
   LH,
   LW,
@@ -27,16 +33,33 @@ import {
   drawCrucible,
   drawParticles,
   drawRays,
-  drawSupernovaField,
   drawSymbol,
-  quantumCubePositions,
   spawnEmbers,
   spawnForgeBurst,
-  spawnSparks,
   updateParticles,
   type Particle,
-  type QuantumCube,
 } from './render';
+import {
+  drawFxBolt,
+  drawFxLaser,
+  drawFxPopup,
+  drawFxRing,
+  drawFxStreak,
+  drawNovaBackground,
+  drawNovaCore,
+  drawNovaFrame,
+  drawNovaRespins,
+  drawNovaTitle,
+  drawNovaTotal,
+  makeBoltPts,
+  novaCellCenter,
+  type FxBolt,
+  type FxLaser,
+  type FxPopup,
+  type FxRing,
+  type FxStreak,
+  type NovaCoreDraw,
+} from './novaRender';
 import { audio } from './audio';
 import { Crucible, type ArtifactKey } from './crucible';
 import { STR, type Locale } from './i18n';
@@ -47,14 +70,14 @@ const CELL = 104;
 export const GRID_X = 298;
 export const GRID_Y = 116;
 
-export type GameState = 'idle' | 'busy' | 'supernova' | 'gamble' | 'hostwait';
+export type GameState = 'idle' | 'busy' | 'nova' | 'hostwait';
 export type Mode = 'demo' | 'host';
 
 export interface WinEntry {
   bet: number;
   winX: number;
   win: number;
-  supernova: boolean;
+  nova: boolean;
 }
 
 export interface GameCallbacks {
@@ -65,8 +88,6 @@ export interface GameCallbacks {
   payBadge(text: string): void;
   winBanner(tier: 0 | 1 | 2, title: string, amountText: string, sub: string): void;
   clearBanner(): void;
-  picksStatus(text: string): void;
-  gambleChoice(amountText: string): Promise<boolean>;
   toast(msg: string): void;
   crucibleChanged(): void;
   canAfford(): boolean;
@@ -106,6 +127,33 @@ interface CellV {
 const fmtInt = (n: number): string => Math.floor(n).toLocaleString('en-US');
 const fmtX = (x: number): string => (Math.round(x * 100) / 100).toString();
 
+/**
+ * Live state of the NOVA FURNACE bonus. The math arrives as an event log
+ * (see nova.ts); this scene replays it cinematically. Math and visuals can
+ * never diverge because the visuals only render the logged events.
+ */
+interface NovaScene {
+  phase: 'collapse' | 'entry' | 'play' | 'finale';
+  phaseK: number; // collapse progress 0..1
+  entryK: number; // chamber emergence 0..1
+  titleK: number; // title punch 0..1
+  cores: (NovaCoreDraw | null)[]; // one slot per forge cell (20)
+  bolts: FxBolt[];
+  lasers: FxLaser[];
+  rings: FxRing[];
+  popups: FxPopup[];
+  streaks: FxStreak[];
+  respinsLeft: number;
+  heat: number; // molten intensity 0..1 (eased)
+  heatTarget: number;
+  shimmerT: number; // anticipation shimmer on empty cells
+  appearK: number[]; // per-cell frame emergence
+  finaleK: number;
+  finaleShown: number;
+  finaleTotal: number;
+  tickAcc: number;
+}
+
 export class Game {
   private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
@@ -133,15 +181,8 @@ export class Game {
   private flash = 0;
   private crucibleFlash = 0;
   private raysT = -1; // >=0 while big-win rays show
-  private supernova: {
-    boxes: QuantumCube[];
-    zoom: number;
-    fieldT: number;
-    prizes: number[];
-    picks: number[];
-    resolve: (v: { picks: number[]; gamble: boolean }) => void;
-    done: boolean;
-  } | null = null;
+  /** Live NOVA FURNACE bonus scene (null outside the bonus). */
+  private nova: NovaScene | null = null;
 
   constructor(canvas: HTMLCanvasElement, cb: GameCallbacks, locale: Locale) {
     this.canvas = canvas;
@@ -164,7 +205,7 @@ export class Game {
     this.cells = g.map(sym => ({ sym, dy: 0, alpha: 0.5, scale: 1, glow: 0, shimmer: false }));
     this.gridOn = true;
 
-    canvas.addEventListener('pointerdown', e => this.onPointerDown(e));
+    canvas.addEventListener('pointerdown', () => this.onPointerDown());
   }
 
   get S(): (typeof STR)[Locale] {
@@ -217,47 +258,7 @@ export class Game {
       this.raysT += dt;
       if (this.raysT > 3.2) this.raysT = -1;
     }
-    if (this.supernova) {
-      const sn = this.supernova;
-      sn.fieldT += dt;
-      for (const b of sn.boxes) {
-        if (b.dim && b.dimT < 1) b.dimT = Math.min(1, b.dimT + dt * 2.2);
-        if (b.ringT > 0 && b.ringT < 1) b.ringT = Math.min(1, b.ringT + dt * 2.4);
-        if (b.phase === 'shaking') {
-          b.phaseT += dt;
-          if (b.phaseT >= 0.5) {
-            // cube destabilizes: glitch burst
-            b.phase = 'bursting';
-            b.phaseT = 0;
-            audio.cubeBreak();
-            if (!this.reducedMotion) {
-              spawnSparks(this.particles, b.x, b.y - 20, 30, '#22d3ee');
-              spawnSparks(this.particles, b.x, b.y - 20, 16, '#d946ef');
-            }
-            this.addShake(4, 280);
-          }
-        } else if (b.phase === 'bursting') {
-          b.phaseT += dt;
-          if (b.phaseT >= 1.0) {
-            b.phase = 'revealed';
-            b.phaseT = 0;
-            b.shown = 0;
-            b.tickAcc = 0;
-            audio.cubeReveal(b.prize);
-          }
-        } else if (b.phase === 'revealed') {
-          b.phaseT += dt;
-          if (b.shown < b.prize) {
-            b.shown = Math.min(b.prize, b.shown + (b.prize * dt) / 0.7);
-            b.tickAcc += dt;
-            if (b.tickAcc > 0.09) {
-              b.tickAcc = 0;
-              audio.tick();
-            }
-          }
-        }
-      }
-    }
+    if (this.nova) this.updateNova(this.nova, dt);
   }
 
   private render(): void {
@@ -295,10 +296,497 @@ export class Game {
     drawParticles(ctx, this.particles);
     ctx.restore();
 
-    // supernova overlay (no shake)
-    if (this.supernova) {
-      drawSupernovaField(ctx, this.t, this.supernova.zoom, this.supernova.boxes, this.supernova.fieldT, this.reducedMotion);
+    // NOVA FURNACE overlay (no shake on the base scene)
+    if (this.nova) this.drawNova(this.nova);
+  }
+
+  // ------------------------------------------------------------ nova bonus
+  private updateNova(nv: NovaScene, dt: number): void {
+    for (const b of nv.bolts) b.t += dt;
+    for (const l of nv.lasers) l.t += dt;
+    for (const r of nv.rings) r.t += dt;
+    for (const p of nv.popups) p.t += dt;
+    for (const st of nv.streaks) st.t += dt;
+    nv.bolts = nv.bolts.filter(b => b.t < b.dur);
+    nv.lasers = nv.lasers.filter(l => l.t < l.dur);
+    nv.rings = nv.rings.filter(r => r.t < r.dur);
+    nv.popups = nv.popups.filter(pp => pp.t < pp.dur);
+    nv.streaks = nv.streaks.filter(st => st.t < st.dur);
+    for (const c of nv.cores) {
+      if (!c) continue;
+      if (c.pulse > 0) c.pulse = Math.max(0, c.pulse - dt * 2.2);
+      if (c.zap > 0) c.zap = Math.max(0, c.zap - dt * 1.6);
+      if (c.spin > 0) c.spin = Math.max(0, c.spin - dt * 0.9);
+      const d = c.value - c.shown;
+      if (Math.abs(d) > 0.004) {
+        c.shown += d * Math.min(1, dt * 9);
+        nv.tickAcc += dt;
+      }
     }
+    if (nv.tickAcc > 0.085) {
+      nv.tickAcc = 0;
+      audio.tick();
+    }
+    if (nv.shimmerT > 0) nv.shimmerT -= dt;
+    nv.heat += (nv.heatTarget - nv.heat) * Math.min(1, dt * 1.6);
+  }
+
+  /** The dimensional tear: the base universe collapses into the void. */
+  private drawNovaCollapse(nv: NovaScene): void {
+    const { ctx } = this;
+    const k = nv.phaseK;
+    ctx.save();
+    const vg = ctx.createRadialGradient(LW / 2, LH / 2, 0, LW / 2, LH / 2, LH * (0.92 - 0.38 * k));
+    vg.addColorStop(0, 'rgba(0,0,0,0)');
+    vg.addColorStop(0.7, `rgba(10,2,6,${(0.6 * k).toFixed(3)})`);
+    vg.addColorStop(1, `rgba(2,1,3,${(0.96 * k).toFixed(3)})`);
+    ctx.fillStyle = vg;
+    ctx.fillRect(0, 0, LW, LH);
+    if (!this.reducedMotion) {
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.globalAlpha = Math.min(1, k * 1.6);
+      const cx = LW / 2;
+      const cy = LH / 2;
+      for (let i = 0; i < 46; i++) {
+        const a = (i / 46) * Math.PI * 2 + k * 0.7;
+        const r0 = 130 + ((i * 197) % 260) + k * 420;
+        const r1 = r0 + 100 + k * 180;
+        const x0 = cx + Math.cos(a) * r0;
+        const y0 = cy + Math.sin(a) * r0;
+        const x1 = cx + Math.cos(a) * r1;
+        const y1 = cy + Math.sin(a) * r1;
+        const g = ctx.createLinearGradient(x0, y0, x1, y1);
+        g.addColorStop(0, 'rgba(255,140,60,0)');
+        g.addColorStop(1, 'rgba(255,170,90,0.55)');
+        ctx.strokeStyle = g;
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.moveTo(x0, y0);
+        ctx.lineTo(x1, y1);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+    ctx.restore();
+  }
+
+  private drawNova(nv: NovaScene): void {
+    const { ctx } = this;
+    if (nv.phase === 'collapse') {
+      this.drawNovaCollapse(nv);
+      return;
+    }
+    drawNovaBackground(ctx, this.t, nv.heat, nv.entryK, this.reducedMotion);
+    const occupied = nv.cores.map(c => c !== null);
+    drawNovaFrame(ctx, this.t, occupied, nv.appearK, nv.shimmerT, this.reducedMotion);
+    for (const c of nv.cores) if (c) drawNovaCore(ctx, c, this.t, this.reducedMotion);
+    for (const r of nv.rings) drawFxRing(ctx, r);
+    for (const l of nv.lasers) drawFxLaser(ctx, l, this.reducedMotion);
+    for (const b of nv.bolts) drawFxBolt(ctx, b, this.reducedMotion);
+    for (const st of nv.streaks) drawFxStreak(ctx, st);
+    for (const p of nv.popups) drawFxPopup(ctx, p);
+    if (nv.phase === 'play' || nv.phase === 'entry') {
+      drawNovaTitle(ctx, nv.titleK, this.reducedMotion);
+      if (nv.titleK > 0.9) drawNovaRespins(ctx, this.t, nv.respinsLeft, NOVA_START_RESPINS, this.reducedMotion);
+    }
+    if (nv.phase === 'finale') {
+      drawRays(ctx, LW / 2, 380, this.t, 'rgba(255,179,71,0.5)', Math.min(1, nv.finaleK), this.reducedMotion);
+      drawNovaTotal(ctx, this.t, nv.finaleShown, nv.finaleK, this.reducedMotion);
+    }
+  }
+
+  /** Format a bonus delta (+1.5 / +2). */
+  private fmtDelta(d: number): string {
+    const r = Math.round(d * 10) / 10;
+    return Number.isInteger(r) ? `+${r}` : `+${r.toFixed(1)}`;
+  }
+
+  private async novaRespinEv(nv: NovaScene, left: number): Promise<void> {
+    nv.respinsLeft = left;
+    audio.novaMusicTension(1 - left / NOVA_START_RESPINS);
+    nv.heatTarget = 0.25 + (1 - left / NOVA_START_RESPINS) * 0.5;
+    audio.novaRespin(left);
+    if (!this.reducedMotion) this.addShake(2, 200);
+    nv.shimmerT = 1.1; // anticipation on the empty sockets
+    await this.wait(520);
+  }
+
+  private async novaLandEv(
+    nv: NovaScene,
+    lands: Array<{ cell: number; kind: NovaKind; value: number }>,
+  ): Promise<void> {
+    const drops = lands.map((l, i) => (async () => {
+      await this.wait(i * 110);
+      if (this.dead) return;
+      const c: NovaCoreDraw = {
+        cell: l.cell,
+        kind: l.kind,
+        value: l.value,
+        shown: l.value,
+        dropK: 0,
+        pulse: 0,
+        zap: 0,
+        spin: 0,
+        seed: Math.random(),
+        flyX: 0,
+        flyY: 0,
+        flyA: 1,
+      };
+      nv.cores[l.cell] = c;
+      audio.novaCoreLand(l.value);
+      if (!this.reducedMotion) {
+        const { x, y } = novaCellCenter(l.cell);
+        nv.rings.push({ x, y, t: 0, dur: 0.5, color: l.kind === 'value' ? '#ffb347' : '#ffffff', maxR: l.kind === 'value' ? 60 : 95, width: 3 });
+        if (l.kind !== 'value') {
+          this.addShake(6, 320);
+          this.flash = Math.max(this.flash, 0.4);
+          audio.novaSpecial(l.kind);
+          nv.heatTarget = Math.min(1, nv.heatTarget + 0.3);
+          await this.wait(380);
+        }
+      }
+      await this.tween(430, k => {
+        c.dropK = k;
+      });
+    })());
+    await Promise.all(drops);
+  }
+
+  private async novaPayerEv(
+    nv: NovaScene,
+    ev: Extract<NovaEvent, { t: 'payerFire' }>,
+  ): Promise<void> {
+    const pc = nv.cores[ev.cell];
+    if (!pc) return;
+    const { x: px, y: py } = novaCellCenter(ev.cell);
+    pc.pulse = 1;
+    audio.novaShockwave();
+    if (!this.reducedMotion) {
+      this.addShake(7, 450);
+      nv.heatTarget = Math.min(1, nv.heatTarget + 0.25);
+      nv.rings.push({ x: px, y: py, t: 0, dur: 0.7, color: '#ffd34d', maxR: 150, width: 6 });
+      nv.rings.push({ x: px, y: py, t: 0.1, dur: 0.7, color: '#fff3c4', maxR: 105, width: 3 });
+    }
+    const beams = ev.targets.map((cell, i) => (async () => {
+      await this.wait(140 + i * 110);
+      if (this.dead) return;
+      const { x: tx, y: ty } = novaCellCenter(cell);
+      const mx = (px + tx) / 2;
+      const my = (py + ty) / 2 - 70;
+      nv.streaks.push({ x0: px, y0: py, x1: mx, y1: my, t: 0, dur: 0.3, color: '#ffd34d' });
+      await this.wait(150);
+      if (this.dead) return;
+      nv.streaks.push({ x0: mx, y0: my, x1: tx, y1: ty, t: 0, dur: 0.25, color: '#ffd34d' });
+      const tc = nv.cores[cell];
+      if (tc) {
+        tc.value += ev.add;
+        tc.pulse = 1;
+        nv.popups.push({ x: tx, y: ty - 46, text: this.fmtDelta(ev.add), t: 0, dur: 1, color: '#ffe9b8', size: 28 });
+        nv.rings.push({ x: tx, y: ty, t: 0, dur: 0.45, color: '#ffd34d', maxR: 55, width: 3 });
+        audio.novaCoreLand(Math.min(3, tc.value));
+      }
+    })());
+    await Promise.all(beams);
+    await this.wait(430);
+  }
+
+  private async novaSniperEv(
+    nv: NovaScene,
+    ev: Extract<NovaEvent, { t: 'sniperFire' }>,
+  ): Promise<void> {
+    const sc = nv.cores[ev.cell];
+    if (!sc) return;
+    const { x: sx, y: sy } = novaCellCenter(ev.cell);
+    sc.pulse = 1;
+    const shots = ev.targets.map((cell, i) => (async () => {
+      await this.wait(i * 210);
+      if (this.dead) return;
+      const { x: tx, y: ty } = novaCellCenter(cell);
+      nv.lasers.push({ x0: sx, y0: sy, x1: tx, y1: ty, t: 0, dur: 0.3 });
+      audio.novaLaser();
+      if (!this.reducedMotion) this.addShake(3, 180);
+      await this.wait(150);
+      if (this.dead) return;
+      const tc = nv.cores[cell];
+      if (tc) {
+        tc.value *= 2;
+        tc.pulse = 1;
+        tc.zap = 0.9;
+        nv.popups.push({ x: tx, y: ty - 48, text: '×2', t: 0, dur: 1, color: '#ff8a7a', size: 32 });
+        nv.rings.push({ x: tx, y: ty, t: 0, dur: 0.4, color: '#ff5a3c', maxR: 60, width: 3 });
+      }
+    })());
+    await Promise.all(shots);
+    await this.wait(520);
+  }
+
+  private async novaCollectEv(
+    nv: NovaScene,
+    ev: Extract<NovaEvent, { t: 'collectFire' }>,
+  ): Promise<void> {
+    const cc = nv.cores[ev.cell];
+    if (!cc) return;
+    const { x: cx, y: cy } = novaCellCenter(ev.cell);
+    cc.pulse = 1;
+    cc.spin = 1; // magnet vortex spin-up
+    audio.novaSpecial('collector');
+    nv.heatTarget = 1;
+    if (!this.reducedMotion) this.addShake(6, 520);
+    await this.wait(520); // spin-up beat
+    // lightning barrage: one bolt per absorbed core, staggered
+    const strikes = ev.from.map((cell, i) => (async () => {
+      await this.wait(i * 75);
+      if (this.dead) return;
+      const { x: tx, y: ty } = novaCellCenter(cell);
+      const bolt: FxBolt = { pts: makeBoltPts(cx, cy, tx, ty), t: 0, dur: 0.34, color: '#ff8fb0', width: 5 };
+      nv.bolts.push(bolt);
+      if (!this.reducedMotion) {
+        setTimeout(() => {
+          if (!this.dead) bolt.pts = makeBoltPts(cx, cy, tx, ty);
+        }, 95); // mid-flight crackle
+      }
+      audio.novaZap();
+      const tc = nv.cores[cell];
+      // the math keeps every target's value: the collector draws power
+      // without draining (visual cores mirror the logged values exactly)
+      const drawn = tc ? tc.value : 0;
+      if (tc) tc.zap = 1;
+      await this.wait(170);
+      if (this.dead) return;
+      nv.streaks.push({ x0: tx, y0: ty, x1: cx, y1: cy, t: 0, dur: 0.42, color: '#fb4d6d' });
+      await this.wait(250);
+      if (this.dead) return;
+      cc.value += drawn;
+      cc.pulse = Math.min(1, cc.pulse + 0.55);
+      audio.tick();
+    })());
+    await Promise.all(strikes);
+    cc.value = ev.newValue; // snap to the logged total (kills float drift)
+    // detonation
+    if (!this.reducedMotion) {
+      this.flash = Math.max(this.flash, 0.55);
+      this.addShake(8, 420);
+      nv.rings.push({ x: cx, y: cy, t: 0, dur: 0.8, color: '#fb4d6d', maxR: 160, width: 6 });
+      if (ev.from.length > 0) {
+        for (let i = 0; i < 3; i++) spawnEmbers(this.particles, cx, cy, 22);
+      }
+    }
+    nv.popups.push({ x: cx, y: cy - 62, text: this.fmtDelta(ev.gained), t: 0, dur: 1.2, color: '#ffffff', size: 34 });
+    await this.wait(720);
+  }
+
+  private async novaFinaleEv(nv: NovaScene, totalX: number): Promise<void> {
+    audio.novaMusicTension(1);
+    nv.heatTarget = 1;
+    await this.wait(480); // the held breath before the win
+    // every core launches skyward as it dissolves into the total
+    if (!this.reducedMotion) {
+      for (const c of nv.cores) {
+        if (!c) continue;
+        const { x } = novaCellCenter(c.cell);
+        const fx = (LW / 2 - x) * 0.35;
+        const fy = -280 - Math.random() * 140;
+        void this.tween(720, k => {
+          c.flyX = fx * k;
+          c.flyY = fy * k;
+          c.flyA = 1 - k;
+        });
+      }
+    } else {
+      for (const c of nv.cores) if (c) c.flyA = 0;
+    }
+    this.flash = 1;
+    if (!this.reducedMotion) {
+      this.addShake(10, 800);
+      for (let i = 0; i < 5; i++) {
+        spawnEmbers(this.particles, LW / 2 + (Math.random() - 0.5) * 560, LH * 0.62, 30);
+      }
+      spawnForgeBurst(this.particles, LW / 2, 380);
+    }
+    audio.novaFanfare();
+    nv.phase = 'finale';
+    nv.finaleTotal = totalX;
+    const dur = this.reducedMotion ? 220 : 2500;
+    let lastTick = 0;
+    await this.tween(dur, k => {
+      nv.finaleShown = totalX * k;
+      nv.finaleK = Math.min(1, k * 3);
+      const now = performance.now();
+      if (!this.reducedMotion && now - lastTick > Math.max(42, 115 - k * 75)) {
+        lastTick = now;
+        audio.tick();
+      }
+    }, easeOutCubic);
+    nv.finaleShown = totalX;
+    nv.finaleK = 1;
+    await this.wait(2000);
+  }
+
+  /**
+   * NOVA FURNACE bonus: dimensional entry, event-log replay, cinematic finale.
+   * Returns the total win multiplier (×bet). The math comes from playNova();
+   * the visuals only replay the logged events, so they can never diverge.
+   */
+  async presentNova(temple: boolean): Promise<number> {
+    return this.playNovaResult(playNova(this.rng, temple));
+  }
+
+  /** Replay a pre-rolled NovaResult cinematically. Returns res.totalX. */
+  private async playNovaResult(res: NovaResult): Promise<number> {
+    const nv: NovaScene = {
+      phase: 'collapse',
+      phaseK: 0,
+      entryK: 0,
+      titleK: 0,
+      cores: new Array(20).fill(null),
+      bolts: [],
+      lasers: [],
+      rings: [],
+      popups: [],
+      streaks: [],
+      respinsLeft: NOVA_START_RESPINS,
+      heat: 0,
+      heatTarget: 0,
+      shimmerT: 0,
+      appearK: new Array(20).fill(0),
+      finaleK: 0,
+      finaleShown: 0,
+      finaleTotal: res.totalX,
+      tickAcc: 0,
+    };
+    this.nova = nv;
+    this.state = 'nova';
+
+    // ---- the universe tears open
+    audio.novaEntry();
+    if (!this.reducedMotion && !this.skipFlag && !this.dead) {
+      await this.tween(950, k => {
+        nv.phaseK = k;
+      }, easeInCubic);
+    }
+    this.flash = 1;
+    this.addShake(12, 600);
+
+    // ---- the furnace materializes
+    nv.phase = 'entry';
+    if (!this.reducedMotion) {
+      await this.tween(900, k => {
+        nv.entryK = k;
+      });
+      await this.tween(1100, k => {
+        for (let c = 0; c < 20; c++) nv.appearK[c] = Math.max(0, Math.min(1, (k - c * 0.022) * 2.4));
+      });
+      for (let c = 0; c < 20; c++) nv.appearK[c] = 1;
+    } else {
+      nv.entryK = 1;
+      nv.appearK.fill(1);
+    }
+    // title punch + furnace score ignites
+    audio.novaMusicStart();
+    audio.novaCoreLand(3);
+    if (!this.reducedMotion) {
+      this.addShake(6, 380);
+      await this.tween(480, k => {
+        nv.titleK = k;
+      }, easeOutBack);
+    }
+    nv.titleK = 1;
+    nv.phase = 'play';
+
+    // ---- replay the event log (consecutive landings play as one staggered batch)
+    const evs = res.events;
+    for (let i = 0; i < evs.length; i++) {
+      if (this.dead) break;
+      const ev = evs[i]!;
+      if (ev.t === 'land') {
+        const batch: Array<{ cell: number; kind: NovaKind; value: number }> = [ev];
+        while (i + 1 < evs.length && evs[i + 1]!.t === 'land') {
+          i++;
+          batch.push(evs[i]! as { cell: number; kind: NovaKind; value: number });
+        }
+        await this.novaLandEv(nv, batch);
+      } else if (ev.t === 'respin') {
+        await this.novaRespinEv(nv, ev.left);
+      } else if (ev.t === 'payerFire') {
+        await this.novaPayerEv(nv, ev);
+      } else if (ev.t === 'sniperFire') {
+        await this.novaSniperEv(nv, ev);
+      } else if (ev.t === 'collectFire') {
+        await this.novaCollectEv(nv, ev);
+      } else if (ev.t === 'end') {
+        await this.novaFinaleEv(nv, ev.totalX);
+      }
+    }
+
+    await this.wait(450);
+    this.nova = null;
+    this.state = 'busy';
+    return res.totalX;
+  }
+
+  /**
+   * Demo shortcut: jump straight into the Nova Furnace cinematic (?bonus=nova).
+   * No spin, no bet deducted — pure showcase of the bonus round.
+   * Showcase rule: re-roll the (genuine, random) bonus until it shows the
+   * furnace at its best — a special core or a >=4x total — so the first
+   * impression matches what the bonus can do. Still real RNG, no fake wins.
+   */
+  /**
+   * Debug/test hook: play a bonus guaranteed to contain a special core of the
+   * given kind. Exposed for automated visual verification; not wired to any UI.
+   */
+  async debugNovaSpecial(kind: 'collector' | 'payer' | 'sniper'): Promise<number> {
+    for (let i = 0; i < 7 && this.state !== 'idle'; i++) await this.wait(500);
+    if (this.state !== 'idle') return 0;
+    this.state = 'busy';
+    this.cb.setBusy(true, this.S.forging);
+    this.cb.clearBanner();
+    const fire = kind === 'collector' ? 'collectFire' : kind === 'payer' ? 'payerFire' : 'sniperFire';
+    let res = playNova(this.rng, false);
+    for (let attempt = 0; attempt < 400; attempt++) {
+      const ok =
+        kind === 'collector'
+          ? res.events.some(e => e.t === 'collectFire' && e.from.length >= 3)
+          : res.events.some(e => e.t === fire);
+      if (ok) break;
+      res = playNova(this.rng, false);
+    }
+    const total = await this.playNovaResult(res);
+    this.state = 'idle';
+    this.cb.setBusy(false, '');
+    return total;
+  }
+
+  async demoNova(): Promise<void> {
+    // wait for the host handshake to settle (demo fallback ~1500ms) before
+    // forcing the idle-only bonus path
+    for (let i = 0; i < 20 && this.state !== 'idle'; i++) await this.wait(500);
+    if (this.state !== 'idle') return;
+    this.state = 'busy';
+    this.skipFlag = false;
+    this.cb.setBusy(true, this.S.forging);
+    this.cb.clearBanner();
+    const bet = this.bet;
+    const temple = (this.artifacts & ART.TEMPLE) !== 0;
+    // pre-roll the bonus off-screen; play the first showcase-worthy result
+    let total = 0;
+    for (let attempt = 0; attempt < 30; attempt++) {
+      const r = playNova(cryptoRng(), temple);
+      const special = r.events.some(e => e.t === 'collectFire' || e.t === 'payerFire' || e.t === 'sniperFire');
+      if (r.totalX >= 4 || special || attempt === 29) {
+        total = await this.playNovaResult(r);
+        break;
+      }
+    }
+    this.balance += total * bet;
+    this.cb.setBalance(this.balanceText());
+    this.cb.winBanner(2, this.S.nova, `×${fmtX(total)}`, '');
+    await this.wait(1800);
+    this.cb.clearBanner();
+    this.cb.pushHistory({ bet, winX: total, win: total * bet, nova: true });
+    this.state = 'idle';
+    this.cb.setBusy(false);
   }
 
   private drawGrid(): void {
@@ -383,144 +871,15 @@ export class Game {
   }
 
   // ------------------------------------------------------------------ input
-  private onPointerDown(e: PointerEvent): void {
+  private onPointerDown(): void {
     audio.unlock();
     audio.startAmbient();
-    if (this.state === 'supernova' && this.supernova && !this.supernova.done) {
-      const rect = this.canvas.getBoundingClientRect();
-      const x = ((e.clientX - rect.left) / rect.width) * LW;
-      const y = ((e.clientY - rect.top) / rect.height) * LH;
-      this.pickBoxAt(x, y);
+    // during the bonus a tap skips the current beat
+    if (this.state === 'nova') {
+      this.skip();
       return;
     }
     if (this.state === 'busy') this.skip();
-  }
-
-  private pickBoxAt(x: number, y: number): void {
-    const sn = this.supernova;
-    if (!sn || sn.picks.length >= 5) return;
-    for (let i = 0; i < sn.boxes.length; i++) {
-      const b = sn.boxes[i]!;
-      if (b.picked) continue;
-      if (Math.hypot(b.x - x, b.y - y) < 58) {
-        b.picked = true;
-        b.phase = 'shaking';
-        b.phaseT = 0;
-        b.ringT = 0.001;
-        sn.picks.push(i);
-        audio.pick(2);
-        audio.supernovaMusicLayer(sn.picks.length);
-        if (!this.reducedMotion) spawnSparks(this.particles, b.x, b.y, 18, '#22d3ee');
-        const left = 5 - sn.picks.length;
-        this.cb.picksStatus(left > 0 ? this.S.picksLeft(left) : '');
-        if (sn.picks.length >= 5) void this.finishPicks();
-        return;
-      }
-    }
-  }
-
-  private async finishPicks(): Promise<void> {
-    const sn = this.supernova;
-    if (!sn || sn.done) return;
-    sn.done = true;
-    // let the cube bursts + reveals play out, then the drop hits
-    audio.supernovaMusicDrop();
-    await this.wait(1500);
-    for (const b of sn.boxes) if (!b.picked) b.dim = true;
-    this.cb.picksStatus('');
-    const sumX = sn.picks.reduce((s, i) => s + sn.prizes[i]!, 0);
-    const gamble = await this.cb.gambleChoice(`×${fmtX(sumX)}`);
-    // zoom out
-    if (!this.reducedMotion) {
-      await this.tween(350, k => {
-        sn.zoom = 1 - k;
-      });
-    } else {
-      sn.zoom = 0;
-    }
-    this.supernova = null;
-    this.state = 'busy';
-    sn.resolve({ picks: sn.picks, gamble });
-  }
-
-  /**
-   * Interactive supernova overlay. Resolves with the 5 picked indices and
-   * the player's gamble choice.
-   */
-  presentSupernovaPicks(prizes: number[]): Promise<{ picks: number[]; gamble: boolean }> {
-    return new Promise(resolve => {
-      const pos = quantumCubePositions();
-      const boxes: QuantumCube[] = pos.map((p, i) => ({
-        x: p.x,
-        y: p.y,
-        prize: prizes[i]!,
-        phase: 'idle',
-        picked: false,
-        dim: false,
-        dimT: 0,
-        phaseT: 0,
-        ringT: 0,
-        seed: Math.random(),
-        appearDelay: 0.3 + i * 0.06,
-        shown: 0,
-        tickAcc: 0,
-      }));
-      this.supernova = { boxes, zoom: 0, fieldT: 0, prizes, picks: [], resolve, done: false };
-      this.state = 'supernova';
-      const intro = async (): Promise<void> => {
-        // cross into the other universe: adaptive music starts instantly
-        audio.supernovaMusicStart();
-        if (!this.reducedMotion && !this.skipFlag && !this.dead) {
-          // cinematic beat: tension riser, then detonation
-          audio.tensionRiser(750);
-          await this.wait(700);
-        }
-        this.flash = 1;
-        this.addShake(10, 700);
-        audio.supernova();
-        this.cb.winBanner(2, this.S.supernova, '', '');
-        if (!this.reducedMotion) {
-          // zoom punch with overshoot, then settle
-          await this.tween(520, k => {
-            if (this.supernova) this.supernova.zoom = k * 1.1;
-          }, easeOutCubic);
-          await this.tween(220, k => {
-            if (this.supernova) this.supernova.zoom = 1.1 - k * 0.1;
-          }, easeOutCubic);
-        } else if (this.supernova) {
-          this.supernova.zoom = 1;
-        }
-        this.cb.picksStatus(this.S.pickStars);
-      };
-      void intro();
-    });
-  }
-
-  /**
-   * Demo shortcut: jump straight into the supernova cinematic (?bonus=supernova).
-   * No spin, no bet deducted — pure showcase of the bonus round.
-   */
-  async demoSupernova(): Promise<void> {
-    // wait for the host handshake to settle (demo fallback ~1500ms) before
-    // forcing the idle-only bonus path
-    for (let i = 0; i < 20 && this.state !== 'idle'; i++) await this.wait(500);
-    if (this.state !== 'idle') return;
-    this.state = 'busy';
-    this.skipFlag = false;
-    this.cb.setBusy(true, this.S.forging);
-    this.cb.clearBanner();
-    const bet = this.bet;
-    const prizes = shufflePrizes(this.rng, this.artifacts);
-    const res = await this.presentSupernovaPicks(prizes);
-    const pickSumX = res.picks.reduce((s, i) => s + prizes[i]!, 0);
-    this.balance += pickSumX * bet;
-    this.cb.setBalance(this.balanceText());
-    this.cb.winBanner(2, this.S.supernova, `×${fmtX(pickSumX)}`, '');
-    await this.wait(1800);
-    this.cb.clearBanner();
-    this.cb.pushHistory({ bet, winX: pickSumX, win: pickSumX * bet, supernova: true });
-    this.state = 'idle';
-    this.cb.setBusy(false);
   }
 
   // --------------------------------------------------------------- demo spin
@@ -555,30 +914,12 @@ export class Game {
     const spin: SpinResult = runSpin(this.rng, this.artifacts);
     await this.animateGrid(spin);
 
-    let picks: number[] = [];
-    let gambleChoice = false;
-    let gambleWon: boolean | null = null;
-    let pickSumX = 0;
-    if (spin.supernova) {
-      const res = await this.presentSupernovaPicks(spin.supernova.prizes);
-      picks = res.picks;
-      gambleChoice = res.gamble;
-      pickSumX = picks.reduce((s, i) => s + spin.supernova!.prizes[i]!, 0);
-      if (gambleChoice) {
-        gambleWon = gambleFlip(this.rng);
-        if (gambleWon) {
-          audio.gambleWin();
-          this.cb.winBanner(1, this.S.gambleWon, `×${fmtX(pickSumX * 2)}`, '');
-        } else {
-          audio.gambleLose();
-          this.cb.winBanner(0, this.S.gambleLost, '×0', '');
-        }
-        await this.wait(1400);
-        this.cb.clearBanner();
-      }
+    let novaWinX = 0;
+    if (spin.nova) {
+      novaWinX = await this.presentNova((this.artifacts & ART.TEMPLE) !== 0);
     }
 
-    const fin: FinalizedSpin = finalizeSpin(spin, picks, gambleChoice, gambleWon);
+    const fin: FinalizedSpin = finalizeSpin(spin, novaWinX);
     await this.presentWin(fin, bet);
 
     // crucible progression
@@ -594,7 +935,7 @@ export class Game {
 
     this.balance += fin.totalWinX * bet;
     this.cb.setBalance(this.balanceText());
-    this.cb.pushHistory({ bet, winX: fin.totalWinX, win: fin.totalWinX * bet, supernova: !!spin.supernova });
+    this.cb.pushHistory({ bet, winX: fin.totalWinX, win: fin.totalWinX * bet, nova: !!spin.nova });
     this.state = 'idle';
     this.cb.setBusy(false);
   }
@@ -674,8 +1015,8 @@ export class Game {
       c.shimmer = false;
     }
 
-    if (countStars(g0) >= 4) {
-      // supernova will trigger after cascade evaluation; brief beat
+    if (countStars(g0) >= NOVA_TRIGGER_STARS) {
+      // the furnace will ignite after cascade evaluation; brief beat
       await this.wait(250);
     }
 

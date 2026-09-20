@@ -22,6 +22,11 @@ import "./ICasinoGameV2.sol";
 ///     -> onRandomness#2: fair coin flip -> SETTLED
 /// @notice The full outcome reveal is encoded in gameState (Reveal struct) so the
 ///         guest UI can decode and animate it without re-simulating.
+/// @dev 2026-09-20: the demo frontend replaced the pick bonus with NOVA FURNACE
+///      (automatic respin bonus, no picks, no gamble — see frontend/src/nova.ts).
+///      The on-chain stage above is unchanged (deployed); demo host mode
+///      auto-submits 5 random picks + collect so sessions settle without the
+///      retired pick UI (see frontend/src/host.ts).
 contract StarforgeGame is ICasinoGameV2 {
     // ---------------- math constants (mirror math-spec.json) ----------------
     uint8 internal constant COLS = 6;

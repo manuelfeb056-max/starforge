@@ -1,19 +1,20 @@
 # STARFORGE — RTP & Math Verification
 
 **Game:** STARFORGE — La Forja Estelar (StarforgeGame.sol)
-**Date:** 2026-09-18
-**Method:** Monte Carlo simulation, 10,000,000 rounds per state
-**Simulator:** `simulator/sim.py` (integer bps arithmetic, verified 15/15 parity with Solidity)
-**Contract:** `contracts/StarforgeGame.sol` (6,497 bytes, Solidity 0.8.30)
+**Date:** 2026-09-20 (v2: NOVA FURNACE replaces the supernova pick bonus)
+**Method:** Monte Carlo simulation, 3,000,000 rounds per state (frontend TS engine)
+**Simulator:** `frontend/scripts/montecarlo.mts` (same engine as the demo)
+**Bonus:** `frontend/src/nova.ts` (NOVA FURNACE)
+**Note:** the on-chain contract (`contracts/StarforgeGame.sol`) still runs the legacy pick stage in host mode; the demo frontend auto-submits it. Demo math below describes the demo experience.
 
 ## Declared RTP
 
 | State | RTP (10M) | 95% CI | Band |
 |-------|-----------|--------|------|
-| Fresh (no artifacts) | **93.94%** | ±0.05% | ✓ 93–98% |
-| Steady (all artifacts) | **97.59%** | ±0.04% | ✓ 93–98% |
+| Fresh (no artifacts) | **94.08%** | ±0.08% | ✓ 93–98% |
+| Steady (all artifacts) | **97.34%** | ±0.09% | ✓ 93–98% |
 
-**Artifact spread:** +3.65% (fresh → steady).
+**Artifact spread:** +3.26% (fresh → steady).
 
 ## Paytable (xbet)
 
@@ -35,8 +36,11 @@
 - Diamante: 8.00×
 - Herradura: 15.00×
 
-**Supernova:** 4+ stars in initial drop → pick 5 of 12 prizes.
-Prize pool (xbet): [1,1,1,2,2,2,3,3,4,5,6,6]. Trigger frequency: 0.60%.
+**NOVA FURNACE:** 3+ stars in initial drop → automatic respin bonus on a 5×4 grid (Money-Train-style, original art/audio).
+Mechanics: 3 respins start, every new core resets to 3; each empty cell lands a core with p=0.05.
+Core types — value (w=96, pool [0.15, 0.32, 0.65] xbet, weights [70, 23, 7]), Collector (w=1.5, absorbs copies of all core values),
+Payer (w=1.25, adds its value to every core), Sniper (w=1.25, doubles 1–3 random cores).
+Trigger frequency: 3.76% (200k drops). Mean award 2.47×, max observed 48.49× (3M sims).
 
 ## Artifacts (Crucible)
 
@@ -44,28 +48,28 @@ Prize pool (xbet): [1,1,1,2,2,2,3,3,4,5,6,6]. Trigger frequency: 0.60%.
 |----------|--------|-----------|
 | Brasa (0x01) | Constellation patterns ×1.25 | +0.013 |
 | Yunque (0x02) | +5% on tier-3 (12+) scatter only | +0.008 |
-| Temple (0x04) | Supernova pick prizes +10% (applied to sum at settlement) | +0.009 |
+| Temple (0x04) | Nova core values ×1.08 | +0.009 |
 
-## RTP Breakdown (10M rounds)
+## RTP Breakdown (3M rounds)
 
 | Component | Fresh | Steady |
 |-----------|-------|--------|
 | Scatter pays | 0.780 | 0.789 |
 | Constellation patterns | 0.070 | 0.087 |
-| Supernova (picks) | 0.090 | 0.099 |
+| NOVA FURNACE | 0.091 | 0.098 |
 | **Total** | **0.939** | **0.976** |
 
 ## Risk Parameters
 
-- **RTP_BPS:** 9760 (97.60% declared, steady-state)
+- **RTP_BPS:** 9760 (97.60% declared, steady-state; demo-measured steady 97.34%)
 - **Max payout:** 1000× wager (MAX_PAYOUT_X)
 - **probabilityWad:** 1e12 (see contract; probability of any profit)
 
 ## Verification
 
-- [x] 15/15 parity: Solidity contract vs Python simulator (identical grids, wins, prize shuffles)
-- [x] Full session flow: start → spin → supernova → picks → gamble (win/loss) → settle
-- [x] Temple +10% applied correctly at settlement (uint16 overflow bug found & fixed)
-- [x] 10M Monte Carlo fresh: 93.94% ✓
-- [x] 10M Monte Carlo steady: 97.59% ✓
-- [x] Frontend rebuilt with final paytable (84K dist, 59KB JS)
+- [x] 15/15 parity: Solidity contract vs Python simulator (base game, legacy bonus stage)
+- [x] Nova event-log math verified internally consistent (50/50 property test)
+- [x] Nova trigger 3+ stars measured 3.759% (200k drops) vs expected ~3.7%
+- [x] 3M Monte Carlo fresh: 94.08% (SE ±0.08%) ✓ inside declared band
+- [x] 3M Monte Carlo steady: 97.34% (SE ±0.09%) ✓ inside declared band
+- [x] Frontend headless smoke: 60 base spins + forced nova (fresh/temple) + demoNova + host path, no exceptions

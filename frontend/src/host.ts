@@ -169,7 +169,10 @@ export class HostDriver {
 
     const phase = item.phaseName;
     if (phase === 'WAITING_PLAYER_ACTION' && !t.picksSubmitted) {
-      // supernova: contract awaits our 5 picks + gamble flag (stage=1)
+      // Bonus stage (stage=1): the on-chain contract still runs its legacy
+      // pick mechanic. The interactive pick UI was retired with the Nova
+      // Furnace rebuild (the furnace is the demo experience), so host mode
+      // auto-submits 5 random picks and collects to let the session settle.
       let decoded;
       try {
         if (!item.raw?.gameState) return;
@@ -180,8 +183,12 @@ export class HostDriver {
       if (decoded.stage !== 1) return;
       t.picksSubmitted = true; // claim synchronously to avoid double-submit
       try {
-        const { picks, gamble } = await this.game.presentSupernovaPicks(decoded.prizes);
-        const actionData = encodeActionData(picks, gamble ? 1 : 0);
+        const pool = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
+        for (let i = pool.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [pool[i], pool[j]] = [pool[j]!, pool[i]!];
+        }
+        const actionData = encodeActionData(pool.slice(0, 5), 0);
         await this.link.hostApi.submitAction({ sessionId: item.sessionId, actionData });
       } catch (err) {
         t.picksSubmitted = false;

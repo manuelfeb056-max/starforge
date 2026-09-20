@@ -23,14 +23,12 @@ export interface Strings {
   nextArtifact: string;
   allForged: string;
   legendary: string;
-  supernova: string;
-  pickStars: string;
-  picksLeft: (n: number) => string;
+  nova: string;
+  novaCollector: string;
+  novaPayer: string;
+  novaSniper: string;
   collect: string;
   doubleOrNothing: string;
-  gamblePrompt: (x: string) => string;
-  gambleWon: string;
-  gambleLost: string;
   waitingHost: string;
   sessionSettling: string;
   newRound: string;
@@ -76,21 +74,19 @@ const es: Strings = {
   nextArtifact: 'Siguiente artefacto',
   allForged: 'Forja completa',
   legendary: 'FORJA LEGENDARIA',
-  supernova: '¡SUPERNOVA!',
-  pickStars: 'Elige 5 cubos cuánticos',
-  picksLeft: (n: number) => `Elige ${n} más`,
+  nova: 'NOVA FURNACE',
+  novaCollector: 'IMÁN',
+  novaPayer: 'AMPLIFICADOR',
+  novaSniper: 'FRANCOTIRADOR',
   collect: 'RECOGER',
   doubleOrNothing: 'DOBLE O NADA',
-  gamblePrompt: (x: string) => `¿Apostar ${x}? 50/50: doble o nada.`,
-  gambleWon: '¡DOBLADO!',
-  gambleLost: 'La forja reclama su parte',
   waitingHost: 'Esperando a la red…',
   sessionSettling: 'Revelando resultado…',
   newRound: 'Ronda lista',
   soundOn: 'Sonido activado',
   soundOff: 'Sonido silenciado',
   infoTitle: 'Cómo jugar',
-  rtpLine: 'RTP 96.0% (estable) / ≥93% sin artefactos. La demo usa la misma matemática que el contrato on-chain.',
+  rtpLine: 'RTP 94.1% (fresco) / 97.3% (estable), Monte Carlo 3M. La demo usa la misma matemática que el contrato on-chain.',
   resetProgress: 'Reiniciar progresión',
   resetDone: 'Progresión reiniciada',
   close: 'Cerrar',
@@ -99,7 +95,7 @@ const es: Strings = {
   artifactTemple: 'Temple',
   artifactBrasaDesc: 'Constelaciones ×1.25',
   artifactYunqueDesc: 'Scatter 12+ ×1.05',
-  artifactTempleDesc: 'Supernova: premios ×1.10',
+  artifactTempleDesc: 'Nova Furnace: valores ×1.08',
   forged: '¡Forjado!',
   winX: (x: string) => `${x}×`,
   credits: 'créditos',
@@ -108,9 +104,9 @@ const es: Strings = {
   connectFail: 'Sin anfitrión — modo demo',
   clickToSkip: 'clic para saltar',
   welcomePlay: 'ENTRAR A LA FORJA',
-  welcomeNote: 'Tragamonedas 6×5 de forja cósmica. Forja minerales, desata la supernova, doble o nada.',
-  welcomeRtp: 'RTP 96.0% · Matemática verificable on-chain',
-  rtpTitle: 'Retorno teórico al jugador: 96.0% estable / ≥93% sin artefactos',
+  welcomeNote: 'Tragamonedas 6×5 de forja cósmica. Forja minerales y desata el horno Nova Furnace.',
+  welcomeRtp: 'RTP 94.1–97.3% · Matemática verificable on-chain',
+  rtpTitle: 'Retorno teórico al jugador: 94.1% fresco / 97.3% estable (Monte Carlo 3M)',
 };
 
 const en: Strings = {
@@ -129,21 +125,19 @@ const en: Strings = {
   nextArtifact: 'Next artifact',
   allForged: 'Forge complete',
   legendary: 'LEGENDARY FORGE',
-  supernova: 'SUPERNOVA!',
-  pickStars: 'Pick 5 quantum cubes',
-  picksLeft: (n: number) => `Pick ${n} more`,
+  nova: 'NOVA FURNACE',
+  novaCollector: 'COLLECTOR',
+  novaPayer: 'AMPLIFIER',
+  novaSniper: 'SNIPER',
   collect: 'COLLECT',
   doubleOrNothing: 'DOUBLE OR NOTHING',
-  gamblePrompt: (x: string) => `Gamble ${x}? 50/50: double or nothing.`,
-  gambleWon: 'DOUBLED!',
-  gambleLost: 'The forge claims its share',
   waitingHost: 'Waiting for the network…',
   sessionSettling: 'Revealing outcome…',
   newRound: 'Round ready',
   soundOn: 'Sound on',
   soundOff: 'Sound muted',
   infoTitle: 'How to play',
-  rtpLine: 'RTP 96.0% (steady) / ≥93% fresh. The demo uses the same math as the on-chain contract.',
+  rtpLine: 'RTP 94.1% (fresh) / 97.3% (steady), 3M Monte Carlo. The demo uses the same math as the on-chain contract.',
   resetProgress: 'Reset progression',
   resetDone: 'Progression reset',
   close: 'Close',
@@ -152,7 +146,7 @@ const en: Strings = {
   artifactTemple: 'Temper',
   artifactBrasaDesc: 'Constellation pays ×1.25',
   artifactYunqueDesc: 'Tier-3 (12+) scatter ×1.05',
-  artifactTempleDesc: 'Supernova prizes ×1.10',
+  artifactTempleDesc: 'Nova Furnace values ×1.08',
   forged: 'Forged!',
   winX: (x: string) => `${x}×`,
   credits: 'credits',
@@ -161,9 +155,9 @@ const en: Strings = {
   connectFail: 'No host — demo mode',
   clickToSkip: 'click to skip',
   welcomePlay: 'ENTER THE FORGE',
-  welcomeNote: 'Scatter-pay 6×5 cosmic-forge slot. Forge minerals, trigger the supernova, double or nothing.',
-  welcomeRtp: 'RTP 96.0% · On-chain verifiable math',
-  rtpTitle: 'Theoretical return to player: 96.0% steady / ≥93% fresh',
+  welcomeNote: 'Scatter-pay 6×5 cosmic-forge slot. Forge minerals and unleash the Nova Furnace.',
+  welcomeRtp: 'RTP 94.1–97.3% · On-chain verifiable math',
+  rtpTitle: 'Theoretical return to player: 94.1% fresh / 97.3% steady (3M Monte Carlo)',
 };
 
 export const STR: Record<Locale, Strings> = { es, en };

@@ -69,7 +69,7 @@ function infoHTML(): string {
   const artRows = [
     ['brasa', 25, L === 'es' ? 'Constelaciones pagan ×1.25' : 'Constellation pays ×1.25'],
     ['yunque', 75, L === 'es' ? 'Scatter 12+ ×1.05' : 'Tier-3 (12+) scatter ×1.05'],
-    ['temple', 150, L === 'es' ? 'Supernova: premios ×1.10' : 'Supernova prizes ×1.10'],
+    ['temple', 150, L === 'es' ? 'Nova Furnace: valores ×1.08' : 'Nova Furnace values ×1.08'],
   ]
     .map(([k, th, d]) => `<li><b style="color:var(--ember)">${k}</b> — ${d} <span class="muted">(${th} ${L === 'es' ? 'esencia' : 'essence'})</span></li>`)
     .join('');
@@ -82,8 +82,8 @@ function infoHTML(): string {
       <h3>CONSTELACIONES</h3>
       <p>Tras cada evaluación scatter se comprueban estas formaciones fijas. Si las 5 celdas tienen el <b>mismo mineral</b> (la estrella lo invalida), paga el bono. Solo la constelación de mayor valor paga por paso.</p>
       <div class="patterns-grid">${patCards}</div>
-      <h3>SUPERNOVA</h3>
-      <p><b>4+ estrellas en la caída inicial</b> abren la supernova: 12 estrellas ocultan premios de ×1 a ×6 (suman 36; <b>×1.10</b> con Temple forjado). Eliges <b>5</b>. Después puedes <b>recoger</b> o jugarte la suma a <b>doble o nada</b> (50/50 justo: ×2 o ×0).</p>
+      <h3>NOVA FURNACE</h3>
+      <p><b>3+ estrellas en la caída inicial</b> abren el horno Nova Furnace: una parrilla 5×4 vacía con <b>3 respins</b>. Cada núcleo de energía que cae reinicia los respins. El <b>Imán</b> absorbe todos los valores visibles con rayos, el <b>Amplificador</b> reparte su valor ×3 entre 3–5 núcleos con una onda expansiva, y el <b>Francotirador</b> duplica 3 núcleos con disparos láser. Con Temple forjado, los valores suben <b>×1.08</b>.</p>
       <h3>ARTEFACTOS DEL CRISOL</h3>
       <p>Cada giro suma su victoria total (en ×apuesta) como esencia. Al cruzar un umbral forjas un artefacto <b>permanente</b> de la sesión:</p>
       <ul>${artRows}</ul>
@@ -98,8 +98,8 @@ function infoHTML(): string {
       <h3>CONSTELLATIONS</h3>
       <p>After each scatter evaluation these fixed formations are checked. If all 5 cells hold the <b>same mineral</b> (a star voids it), the bonus pays. Only the highest-value constellation pays per step.</p>
       <div class="patterns-grid">${patCards}</div>
-      <h3>SUPERNOVA</h3>
-      <p><b>4+ stars on the initial drop</b> open the supernova: 12 quantum cubes hide prizes from ×1 to ×6 (sum 36; <b>×1.10</b> with Temper forged). You pick <b>5</b>. Then <b>collect</b> or risk the sum <b>double or nothing</b> (fair 50/50: ×2 or ×0).</p>
+      <h3>NOVA FURNACE</h3>
+      <p><b>3+ stars on the initial drop</b> open the Nova Furnace: an empty 5×4 forge with <b>3 respins</b>. Every energy core that lands resets respins. The <b>Collector</b> absorbs all visible values with lightning, the <b>Amplifier</b> pays its value ×3 across 3–5 cores in a shockwave, and the <b>Sniper</b> doubles 3 cores with laser shots. With Temper forged, values rise <b>×1.08</b>.</p>
       <h3>CRUCIBLE ARTIFACTS</h3>
       <p>Every spin adds its total win (in ×bet) as essence. Crossing a threshold forges a <b>permanent</b> session artifact:</p>
       <ul>${artRows}</ul>
@@ -167,7 +167,7 @@ async function main(): Promise<void> {
       ul.innerHTML = '';
       for (const h of history) {
         const li = document.createElement('li');
-        if (h.supernova) li.classList.add('sn');
+        if (h.nova) li.classList.add('nv');
         li.innerHTML = `<span class="hx">×${h.winX < 10 ? h.winX.toFixed(2) : Math.round(h.winX * 10) / 10}</span><span>bet ${h.bet}</span><span class="hw">+${fmtInt(h.win)}</span>`;
         ul.appendChild(li);
       }
@@ -199,22 +199,6 @@ async function main(): Promise<void> {
     },
     clearBanner() {
       $('banner').className = '';
-    },
-    picksStatus(text) {
-      $('picks-status').textContent = text;
-    },
-    gambleChoice(amountText) {
-      return new Promise<boolean>(resolve => {
-        $('gamble-amount').textContent = amountText;
-        $('gamble-overlay').classList.add('show');
-        const done = (v: boolean) => {
-          audio.button();
-          $('gamble-overlay').classList.remove('show');
-          resolve(v);
-        };
-        ($('btn-collect') as HTMLButtonElement).onclick = () => done(false);
-        ($('btn-double') as HTMLButtonElement).onclick = () => done(true);
-      });
     },
     toast(msg) {
       const el = $('toast');
@@ -337,10 +321,10 @@ async function main(): Promise<void> {
     audio.button();
     $('welcome').classList.remove('show');
     driver?.reportSize();
-    // demo shortcut: ?bonus=supernova jumps straight into the bonus cinematic
+    // demo shortcut: ?bonus=nova jumps straight into the bonus cinematic
     try {
-      if (new URLSearchParams(location.search).get('bonus') === 'supernova') {
-        setTimeout(() => { void game.demoSupernova(); }, 600);
+      if (new URLSearchParams(location.search).get('bonus') === 'nova') {
+        setTimeout(() => { void game.demoNova(); }, 600);
       }
     } catch { /* ignore */ }
   });
@@ -354,7 +338,7 @@ async function main(): Promise<void> {
   }, { once: true });
   document.addEventListener('keydown', e => {
     if (e.key === 'Escape') {
-      // info modal only — the gamble overlay must resolve via a choice
+      // close the info modal
       $('info-modal').classList.remove('show');
     }
     if ((e.key === ' ' || e.key === 'Enter') && document.activeElement === document.body) {

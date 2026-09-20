@@ -65,14 +65,8 @@ export const PATTERNS: PatternDef[] = [
   { name: 'cruz', payX: 2, cells: [idx(2, 1), idx(2, 2), idx(2, 3), idx(1, 2), idx(3, 2)] },
 ];
 
-/** Supernova prize pool (xbet), sum = 36, E[pick sum] = 5*36/12 = 15. */
-export const SUPERNOVA_POOL = [1, 1, 1, 2, 2, 2, 3, 3, 4, 5, 6, 6] as const;
-export const SUPERNOVA_TRIGGER_STARS = 4;
-/** Always 5 picks of 12. Temple boosts every prize x1.10 instead. */
-export const SUPERNOVA_PICKS = 5;
-export const SUPERNOVA_FIELD = 12;
-/** Temple multiplier applied to every supernova prize. */
-export const TEMPLE_PRIZE_MULT = 1.1;
+/** Nova Furnace trigger: 3+ stars on the initial drop (see nova.ts). */
+export const NOVA_TRIGGER_STARS = 3;
 
 // ---------------------------------------------------------------------------
 // RNG
@@ -249,27 +243,11 @@ function refillGrid(grid: number[], removed: boolean[], rng: ByteRng): number[] 
 }
 
 // ---------------------------------------------------------------------------
-// Supernova
+// Nova Furnace trigger
 // ---------------------------------------------------------------------------
-
-/** Fisher-Yates shuffle of the prize pool with per-range rejection sampling.
- * Temple: every prize x1.10 (picks stay 5 of 12). */
-export function shufflePrizes(rng: ByteRng, artifacts = 0): number[] {
-  const mult = artifacts & ART.TEMPLE ? TEMPLE_PRIZE_MULT : 1;
-  const pool: number[] = [...SUPERNOVA_POOL].map(p => p * mult);
-  for (let i = pool.length - 1; i >= 1; i--) {
-    const j = drawRange(rng, i + 1);
-    const tmp = pool[i] as number;
-    pool[i] = pool[j] as number;
-    pool[j] = tmp;
-  }
-  return pool;
-}
-
-/** Sum of the 5 picked prizes (indices must be distinct, in [0,12)). */
-export function supernovaPicks(prizes: number[], picks: number[]): number {
-  return picks.reduce((s, p) => s + (prizes[p] as number), 0);
-}
+// The bonus itself lives in nova.ts (pure math, event-log simulation).
+// runSpin only flags the trigger; the UI (or simulator) resolves it with
+// playNova(rng, templeForged) and passes the total to finalizeSpin.
 
 /** Fair double-or-nothing coin flip: first randomness byte % 2 (256 | 2, no rejection). */
 export function gamble(rng: ByteRng): boolean {
@@ -284,11 +262,12 @@ export type SpinResult = {
   /** grids[0] = initial drop; grids[k+1] = grid after step k's cascade refill. */
   grids: number[][];
   steps: StepResult[];
-  supernova: { prizes: number[] } | null;
-  /** Supernova prize sum BEFORE any gamble (xbet). Set post-picks by the UI. */
+  /** True when 4+ stars hit: the UI resolves the Nova Furnace bonus. */
+  nova: boolean;
+  /** Nova Furnace prize (xbet). Set post-bonus by the UI / simulator. */
   gridWinX: number;
   patternWinX: number;
-  totalWinX: number; // grid + patterns + supernova picks, clamped to 1000x
+  totalWinX: number; // grid + patterns + nova, clamped to 1000x
 };
 
 export function countStars(grid: number[]): number {
@@ -298,9 +277,9 @@ export function countStars(grid: number[]): number {
 }
 
 /**
- * Run one full spin through the cascade ladder. Supernova prizes are drawn
- * (when triggered) but NOT picked/gambled here — the UI resolves picks and
- * the optional double-or-nothing, then calls finalizeSpin.
+ * Run one full spin through the cascade ladder. A Nova Furnace trigger is
+ * flagged but NOT resolved here — the UI resolves it (animated) and the
+ * simulator resolves it via playNova; both then call finalizeSpin.
  */
 export function runSpin(rng: ByteRng, artifacts: number): SpinResult {
   const grid0 = drawGrid(rng);
@@ -322,35 +301,20 @@ export function runSpin(rng: ByteRng, artifacts: number): SpinResult {
     grids.push(grid);
   }
 
-  const supernova =
-    countStars(grid0) >= SUPERNOVA_TRIGGER_STARS ? { prizes: shufflePrizes(rng, artifacts) } : null;
+  const nova = countStars(grid0) >= NOVA_TRIGGER_STARS;
 
-  return { grids, steps, supernova, gridWinX, patternWinX, totalWinX: gridWinX + patternWinX };
+  return { grids, steps, nova, gridWinX, patternWinX, totalWinX: gridWinX + patternWinX };
 }
 
 export type FinalizedSpin = SpinResult & {
-  pickSumX: number;
-  gambled: boolean;
-  gambleWon: boolean | null;
-  supernovaWinX: number; // final supernova contribution (post-gamble)
+  novaWinX: number; // nova furnace contribution for this spin
 };
 
 /**
- * Finalize a spin after the player picks 5 supernova prizes (empty picks when
- * no supernova) and optionally gambles. Clamps the total to 1000x.
+ * Finalize a spin after the Nova Furnace bonus resolves (novaWinX = 0 when
+ * no trigger). Clamps the total to 1000x.
  */
-export function finalizeSpin(
-  spin: SpinResult,
-  picks: number[],
-  gambleChoice: boolean,
-  gambleWon: boolean | null,
-): FinalizedSpin {
-  let pickSumX = 0;
-  let supernovaWinX = 0;
-  if (spin.supernova) {
-    pickSumX = supernovaPicks(spin.supernova.prizes, picks);
-    supernovaWinX = gambleChoice ? (gambleWon ? pickSumX * 2 : 0) : pickSumX;
-  }
-  const totalWinX = Math.min(spin.gridWinX + spin.patternWinX + supernovaWinX, MAX_PAYOUT_X);
-  return { ...spin, pickSumX, gambled: gambleChoice, gambleWon, supernovaWinX, totalWinX };
+export function finalizeSpin(spin: SpinResult, novaWinX: number): FinalizedSpin {
+  const totalWinX = Math.min(spin.gridWinX + spin.patternWinX + novaWinX, MAX_PAYOUT_X);
+  return { ...spin, novaWinX, totalWinX };
 }

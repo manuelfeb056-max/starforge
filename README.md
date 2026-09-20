@@ -1,9 +1,9 @@
 # STARFORGE — La Forja Estelar
 
 Casino game entry for **Chain Jam** (deadline 2026-09-20). A scatter-pay 6×5 cosmic-forge slot:
-forge minerals, trigger the supernova, double or nothing.
+forge minerals, trigger the NOVA FURNACE respin bonus.
 
-- **Game:** 6×5 scatter-pay slot, cascades, supernova pick bonus, gamble feature, 3 forgeable artifacts (Brasa / Yunque / Temple)
+- **Game:** 6×5 scatter-pay slot, cascades, NOVA FURNACE automatic respin bonus (3+ stars), 3 forgeable artifacts (Brasa / Yunque / Temple)
 - **Frontend:** Vite + vanilla TypeScript + Canvas 2D, WebAudio-synthesized SFX, EN/ES
 - **Contract:** `contracts/StarforgeGame.sol` (Solidity 0.8.30) — provably-fair on-chain settlement path
 - **Math:** single source of truth `math-spec.json`; Monte Carlo 10M rounds — **93.94% RTP** fresh, **97.59% RTP** with all artifacts (see `docs/RTP_MATH.md`)
