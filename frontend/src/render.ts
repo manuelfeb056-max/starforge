@@ -501,40 +501,39 @@ export function drawCrucible(ctx: CanvasRenderingContext2D, x: number, y: number
     ctx.restore();
   }
 }
-
 // ---------------------------------------------------------------------------
-// supernova overlay — gift-box pick bonus
+// supernova overlay — QUANTUM UNIVERSE pick bonus
 // ---------------------------------------------------------------------------
 
-export interface GiftBox {
-  x: number; // anchor: center of the box body
+export interface QuantumCube {
+  x: number; // anchor: center of the cube
   y: number;
   prize: number; // hidden multiplier
   phase: 'idle' | 'shaking' | 'bursting' | 'revealed';
   picked: boolean;
   dim: boolean;
-  dimT: number; // 0..1 elegant fade for unpicked boxes
+  dimT: number; // 0..1 quantum dissolve for unpicked cubes
   phaseT: number; // seconds in current phase
   ringT: number; // shockwave 0..1
-  seed: number; // per-box random offset
-  appearDelay: number; // staggered entrance
+  seed: number; // per-cube random offset
+  appearDelay: number; // staggered materialization
   shown: number; // count-up display value
   tickAcc: number; // accumulator for count-up ticks
 }
 
-const gbClamp = (v: number): number => Math.max(0, Math.min(1, v));
-const gbEaseOutCubic = (k: number): number => 1 - Math.pow(1 - k, 3);
-const gbEaseOutBack = (k: number): number => {
+const qcClamp = (v: number): number => Math.max(0, Math.min(1, v));
+const qcEaseOutCubic = (k: number): number => 1 - Math.pow(1 - k, 3);
+const qcEaseOutBack = (k: number): number => {
   const c = 1.70158;
   return 1 + (c + 1) * Math.pow(k - 1, 3) + c * Math.pow(k - 1, 2);
 };
 
-function gbFmtPrize(v: number): string {
+function qcFmtPrize(v: number): string {
   return Number.isInteger(v) ? String(v) : v.toFixed(1);
 }
 
-/** 12 gift boxes in a 4x3 arc formation. */
-export function giftBoxPositions(): Array<{ x: number; y: number }> {
+/** 12 quantum cubes in a 4x3 arc formation. */
+export function quantumCubePositions(): Array<{ x: number; y: number }> {
   const pos: Array<{ x: number; y: number }> = [];
   for (let row = 0; row < 3; row++) {
     for (let col = 0; col < 4; col++) {
@@ -548,115 +547,504 @@ export function giftBoxPositions(): Array<{ x: number; y: number }> {
   return pos;
 }
 
-function drawGiftBox(
+// ---- tiny 3D math for the pseudo-3D cubes ----------------------------------
+type V3 = [number, number, number];
+const CUBE_VERTS: V3[] = [
+  [-1, -1, -1], [1, -1, -1], [1, 1, -1], [-1, 1, -1],
+  [-1, -1, 1], [1, -1, 1], [1, 1, 1], [-1, 1, 1],
+];
+const CUBE_EDGES: Array<[number, number]> = [
+  [0, 1], [1, 2], [2, 3], [3, 0],
+  [4, 5], [5, 6], [6, 7], [7, 4],
+  [0, 4], [1, 5], [2, 6], [3, 7],
+];
+const CUBE_FACES: number[][] = [
+  [0, 1, 2, 3], [4, 5, 6, 7],
+  [0, 1, 5, 4], [2, 3, 7, 6],
+  [1, 2, 6, 5], [0, 3, 7, 4],
+];
+
+function qcRot(v: V3, rx: number, ry: number): V3 {
+  const cy = Math.cos(ry);
+  const sy = Math.sin(ry);
+  const x1 = v[0] * cy + v[2] * sy;
+  const z1 = -v[0] * sy + v[2] * cy;
+  const cx = Math.cos(rx);
+  const sx = Math.sin(rx);
+  const y1 = v[1] * cx - z1 * sx;
+  const z2 = v[1] * sx + z1 * cx;
+  return [x1, y1, z2];
+}
+
+interface QProj { x: number; y: number; z: number }
+
+function qcProject(cx: number, cy: number, r: number, rx: number, ry: number): QProj[] {
+  return CUBE_VERTS.map(v => {
+    const [x, y, z] = qcRot(v, rx, ry);
+    const persp = 1 / (1 + z * 0.24);
+    return { x: cx + x * r * persp, y: cy + y * r * persp, z };
+  });
+}
+
+// ---- the other universe: background ----------------------------------------
+interface QStar { x: number; y: number; r: number; tw: number; sp: number; hue: number }
+interface QDust { x: number; y: number; r: number; sp: number; ph: number }
+let qStars: QStar[] | null = null;
+let qDust: QDust[] | null = null;
+
+function ensureQuantumField(): void {
+  if (qStars) return;
+  const rnd = mulberry32(0x9e3779b9);
+  qStars = [];
+  for (let i = 0; i < 150; i++) {
+    qStars.push({ x: rnd() * LW, y: rnd() * LH, r: 0.4 + rnd() * 1.7, tw: rnd() * 6.283, sp: 0.15 + rnd() * 0.85, hue: rnd() });
+  }
+  qDust = [];
+  for (let i = 0; i < 46; i++) {
+    qDust.push({ x: rnd() * LW, y: rnd() * LH, r: 1 + rnd() * 2.4, sp: 6 + rnd() * 14, ph: rnd() * 6.283 });
+  }
+}
+
+const QCX = LW / 2;
+const QCY = LH * 0.42;
+
+function drawQuantumUniverse(
   ctx: CanvasRenderingContext2D,
   t: number,
-  b: GiftBox,
+  zoom: number,
+  reducedMotion: boolean,
+): void {
+  ensureQuantumField();
+
+  // 1. deep dimensional gradient: indigo -> magenta -> cyan depths
+  const bg = ctx.createLinearGradient(0, 0, 0, LH);
+  bg.addColorStop(0, '#070418');
+  bg.addColorStop(0.45, '#150a35');
+  bg.addColorStop(0.75, '#2b0f45');
+  bg.addColorStop(1, '#041a26');
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, LW, LH);
+
+  // 2. drifting nebula blobs
+  const blobs = [
+    { dx: -380, dy: -140, r: 330, c: '139,92,246', a: 0.22, sp: 0.21 },
+    { dx: 400, dy: 120, r: 370, c: '34,211,238', a: 0.14, sp: 0.16 },
+    { dx: 40, dy: -210, r: 290, c: '217,70,239', a: 0.17, sp: 0.27 },
+    { dx: -120, dy: 230, r: 260, c: '45,212,191', a: 0.1, sp: 0.19 },
+  ];
+  for (let i = 0; i < blobs.length; i++) {
+    const b = blobs[i]!;
+    const bx = QCX + b.dx + (reducedMotion ? 0 : Math.sin(t * b.sp + i * 2.1) * 48);
+    const by = QCY + b.dy + (reducedMotion ? 0 : Math.cos(t * b.sp * 0.8 + i * 1.3) * 36);
+    const g = ctx.createRadialGradient(bx, by, 0, bx, by, b.r);
+    g.addColorStop(0, `rgba(${b.c},${b.a})`);
+    g.addColorStop(1, `rgba(${b.c},0)`);
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, LW, LH);
+  }
+
+  // 3. wormhole tunnel: concentric rotating energy rings
+  const ringCols = ['34,211,238', '139,92,246', '217,70,239', '99,102,241', '45,212,191'];
+  for (let i = 0; i < 5; i++) {
+    const rr = 120 + i * 112 + (reducedMotion ? 0 : Math.sin(t * 1.1 + i * 1.7) * 14);
+    ctx.save();
+    ctx.translate(QCX, QCY);
+    if (!reducedMotion) ctx.rotate(t * (0.1 + i * 0.045) * (i % 2 ? -1 : 1));
+    ctx.setLineDash([26, 34, 8, 34]);
+    if (!reducedMotion) ctx.lineDashOffset = -t * 60 * (i % 2 ? 1 : -1);
+    const col = ringCols[i % ringCols.length]!;
+    ctx.strokeStyle = `rgba(${col},${(0.36 - i * 0.05).toFixed(3)})`;
+    ctx.lineWidth = 5 - i * 0.6;
+    if (!reducedMotion) {
+      ctx.shadowColor = `rgba(${col},0.8)`;
+      ctx.shadowBlur = 18;
+    }
+    ctx.beginPath();
+    ctx.ellipse(0, 0, rr * 1.35, rr * 0.78, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+  ctx.setLineDash([]);
+
+  // 4. distant stars with parallax drift + twinkle
+  for (const s of qStars!) {
+    let px = s.x - (reducedMotion ? 0 : t * 8 * s.sp);
+    px = px % LW;
+    if (px < 0) px += LW;
+    const tw = reducedMotion ? 0.7 : 0.45 + 0.55 * Math.sin(t * 2.2 * s.sp + s.tw);
+    const col = s.hue < 0.6 ? '223,230,255' : s.hue < 0.85 ? '190,242,255' : '240,200,255';
+    ctx.fillStyle = `rgba(${col},${(0.2 + 0.6 * tw).toFixed(3)})`;
+    ctx.fillRect(px, s.y, s.r, s.r);
+  }
+
+  // 5. cosmic dust rising
+  if (!reducedMotion) {
+    for (const d of qDust!) {
+      let py = (d.y - t * d.sp) % LH;
+      if (py < 0) py += LH;
+      const dx = d.x + Math.sin(t * 0.5 + d.ph) * 22;
+      const a = 0.1 + 0.08 * Math.sin(t * 1.3 + d.ph);
+      ctx.fillStyle = `rgba(170,200,255,${a.toFixed(3)})`;
+      ctx.beginPath();
+      ctx.arc(dx, py, d.r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // 6. tunnel inflow: light streaks flowing toward the wormhole core
+    ctx.save();
+    for (let i = 0; i < 26; i++) {
+      const a = (i / 26) * Math.PI * 2 + t * 0.05;
+      const k = (t * 0.7 + i * 0.37) % 1; // 0 far -> 1 near core
+      const r = 580 + (220 - 580) * k;
+      const x0 = QCX + Math.cos(a) * r * 1.35;
+      const y0 = QCY + Math.sin(a) * r * 0.78;
+      const x1 = QCX + Math.cos(a) * (r - 30) * 1.35;
+      const y1 = QCY + Math.sin(a) * (r - 30) * 0.78;
+      ctx.strokeStyle = `rgba(160,220,255,${((1 - k) * 0.5).toFixed(3)})`;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(x0, y0);
+      ctx.lineTo(x1, y1);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  // 7. entry warp streaks (the dimensional jump punch)
+  if (!reducedMotion && zoom > 0) {
+    ctx.save();
+    ctx.lineWidth = 1.6;
+    for (const s of starfieldForStreaks()) {
+      const dx = s.x - QCX;
+      const dy = s.y - QCY;
+      const d = Math.hypot(dx, dy) || 1;
+      const ux = dx / d;
+      const uy = dy / d;
+      const lead = zoom * 130 * (0.4 + s.sp * 0.6);
+      const x2 = s.x + ux * lead;
+      const y2 = s.y + uy * lead;
+      const a = Math.min(0.75, zoom * 0.8);
+      const grad = ctx.createLinearGradient(s.x, s.y, x2, y2);
+      grad.addColorStop(0, 'rgba(223,230,255,0)');
+      grad.addColorStop(1, `rgba(223,230,255,${a.toFixed(3)})`);
+      ctx.strokeStyle = grad;
+      ctx.beginPath();
+      ctx.moveTo(s.x, s.y);
+      ctx.lineTo(x2, y2);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+}
+
+interface StreakStar { x: number; y: number; sp: number }
+let streakStars: StreakStar[] | null = null;
+function starfieldForStreaks(): StreakStar[] {
+  if (!streakStars) {
+    const rnd = mulberry32(0x5eed);
+    streakStars = [];
+    for (let i = 0; i < 200; i++) streakStars.push({ x: rnd() * LW, y: rnd() * LH, sp: 0.2 + rnd() * 0.8 });
+  }
+  return streakStars;
+}
+
+// ---- the quantum cube ------------------------------------------------------
+function drawCubeBody(
+  ctx: CanvasRenderingContext2D,
+  cx: number,
+  cy: number,
+  r: number,
+  rx: number,
+  ry: number,
+  t: number,
+  seed: number,
+  reducedMotion: boolean,
+  glitchPass: number, // -1 = normal; 0/1 = glitch color-split passes
+): void {
+  const P = qcProject(cx, cy, r, rx, ry);
+  const at = (i: number): QProj => P[i]!;
+
+  // translucent holographic faces, painter-ordered
+  const fz = CUBE_FACES.map(f => f.reduce((s, i) => s + at(i).z, 0) / 4);
+  const order = CUBE_FACES.map((_, i) => i).sort((a, b) => fz[a]! - fz[b]!);
+  for (const fi of order) {
+    const f = CUBE_FACES[fi]!;
+    ctx.beginPath();
+    ctx.moveTo(at(f[0]!).x, at(f[0]!).y);
+    for (let k = 1; k < 4; k++) ctx.lineTo(at(f[k]!).x, at(f[k]!).y);
+    ctx.closePath();
+    ctx.fillStyle = glitchPass < 0 ? 'rgba(70,130,235,0.10)' : 'rgba(217,70,239,0.08)';
+    ctx.fill();
+  }
+
+  // energy edges: cyan -> violet gradient per edge
+  ctx.lineWidth = 2.6;
+  if (!reducedMotion && glitchPass < 0) {
+    ctx.shadowColor = '#22d3ee';
+    ctx.shadowBlur = 12;
+  }
+  for (const [a, b2] of CUBE_EDGES) {
+    const A = at(a);
+    const B = at(b2);
+    if (glitchPass < 0) {
+      const g = ctx.createLinearGradient(A.x, A.y, B.x, B.y);
+      g.addColorStop(0, '#22d3ee');
+      g.addColorStop(1, '#a855f7');
+      ctx.strokeStyle = g;
+    } else {
+      ctx.strokeStyle = glitchPass === 0 ? 'rgba(217,70,239,0.85)' : 'rgba(34,211,238,0.85)';
+    }
+    ctx.beginPath();
+    ctx.moveTo(A.x, A.y);
+    ctx.lineTo(B.x, B.y);
+    ctx.stroke();
+  }
+  ctx.shadowBlur = 0;
+
+  // inner energy core: pulsing plasma heart
+  let px = 0;
+  let py = 0;
+  for (const p of P) { px += p.x; py += p.y; }
+  px /= 8; py /= 8;
+  const pulse = reducedMotion ? 0.9 : 0.78 + 0.32 * Math.sin(t * 5 + seed * 6.283);
+  const cr = r * 0.52 * pulse;
+  const cg = ctx.createRadialGradient(px, py, 0, px, py, cr);
+  cg.addColorStop(0, 'rgba(255,255,255,0.95)');
+  cg.addColorStop(0.4, 'rgba(160,240,255,0.55)');
+  cg.addColorStop(1, 'rgba(139,92,246,0)');
+  ctx.fillStyle = cg;
+  ctx.beginPath();
+  ctx.arc(px, py, cr, 0, Math.PI * 2);
+  ctx.fill();
+
+  if (!reducedMotion) {
+    // holographic scanlines across the cube
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(cx - r * 1.15, cy - r * 1.15, r * 2.3, r * 2.3);
+    ctx.clip();
+    ctx.fillStyle = 'rgba(190,245,255,0.10)';
+    const scanY = cy - r + ((t * 46 + seed * 300) % (r * 2));
+    ctx.fillRect(cx - r * 1.15, scanY, r * 2.3, 3);
+    ctx.fillStyle = 'rgba(190,245,255,0.05)';
+    for (let i = 0; i < 5; i++) ctx.fillRect(cx - r * 1.15, cy - r + i * (r * 0.42), r * 2.3, 1.5);
+    ctx.restore();
+
+    // orbiting sparks: electrons around the cube
+    for (let i = 0; i < 3; i++) {
+      const oa = t * (1.15 + i * 0.38) + seed * 6.283 + i * 2.094;
+      const orad = r * (1.75 + 0.18 * Math.sin(t * 1.7 + i * 2));
+      const ox = cx + Math.cos(oa) * orad;
+      const oy = cy + Math.sin(oa) * orad * 0.55;
+      const og = ctx.createRadialGradient(ox, oy, 0, ox, oy, 9);
+      og.addColorStop(0, 'rgba(255,255,255,0.95)');
+      og.addColorStop(0.4, 'rgba(140,230,255,0.6)');
+      og.addColorStop(1, 'rgba(140,230,255,0)');
+      ctx.fillStyle = og;
+      ctx.beginPath();
+      ctx.arc(ox, oy, 9, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // electron orbit ring
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(-0.35);
+    ctx.strokeStyle = 'rgba(140,230,255,0.28)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, r * 1.85, r * 1.02, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+}
+
+/** Shattering: the 12 edges explode outward as light shards. */
+function drawCubeShatter(
+  ctx: CanvasRenderingContext2D,
+  cx: number,
+  cy: number,
+  r: number,
+  rx: number,
+  ry: number,
+  phaseT: number,
+  t: number,
+  seed: number,
+  reducedMotion: boolean,
+): void {
+  const P = qcProject(cx, cy, r, rx, ry);
+  const at = (i: number): QProj => P[i]!;
+  const k = qcClamp(phaseT / 0.7);
+  const fly = qcEaseOutCubic(k) * 240;
+  const rot = (reducedMotion ? 0 : phaseT * 3.2) + seed * 6.283;
+  const fade = 1 - k;
+
+  // core flash
+  if (k < 0.5) {
+    const fa = (1 - k * 2) * 0.85;
+    const fg = ctx.createRadialGradient(cx, cy, 0, cx, cy, r * 3);
+    fg.addColorStop(0, `rgba(255,255,255,${fa.toFixed(3)})`);
+    fg.addColorStop(1, 'rgba(160,240,255,0)');
+    ctx.fillStyle = fg;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r * 3, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  ctx.save();
+  ctx.globalAlpha = fade;
+  ctx.lineWidth = 3;
+  ctx.shadowColor = '#aef';
+  ctx.shadowBlur = 14;
+  for (let e = 0; e < CUBE_EDGES.length; e++) {
+    const [a, b2] = CUBE_EDGES[e]!;
+    const A = at(a);
+    const B = at(b2);
+    const mx = (A.x + B.x) / 2;
+    const my = (A.y + B.y) / 2;
+    let dx = mx - cx;
+    let dy = my - cy;
+    const dl = Math.hypot(dx, dy) || 1;
+    dx /= dl; dy /= dl;
+    const ox = dx * fly + (reducedMotion ? 0 : Math.sin(t * 21 + e * 1.7) * 8 * k);
+    const oy = dy * fly + (reducedMotion ? 0 : Math.cos(t * 19 + e * 2.3) * 8 * k);
+    const c = Math.cos(rot + e);
+    const s = Math.sin(rot + e);
+    const rx0 = (A.x - mx) * c - (A.y - my) * s + mx + ox;
+    const ry0 = (A.x - mx) * s + (A.y - my) * c + my + oy;
+    const rx1 = (B.x - mx) * c - (B.y - my) * s + mx + ox;
+    const ry1 = (B.x - mx) * s + (B.y - my) * c + my + oy;
+    const g = ctx.createLinearGradient(rx0, ry0, rx1, ry1);
+    g.addColorStop(0, '#ffffff');
+    g.addColorStop(1, e % 2 ? '#22d3ee' : '#a855f7');
+    ctx.strokeStyle = g;
+    ctx.beginPath();
+    ctx.moveTo(rx0, ry0);
+    ctx.lineTo(rx1, ry1);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawQuantumCube(
+  ctx: CanvasRenderingContext2D,
+  t: number,
+  b: QuantumCube,
   fieldT: number,
   reducedMotion: boolean,
 ): void {
-  const BW = 78;
-  const BH = 60;
-  const LIDH = 22;
-
-  // staggered entrance
-  const ekRaw = gbClamp((fieldT - b.appearDelay) / 0.45);
-  const ek = reducedMotion ? (ekRaw >= 1 ? 1 : 0) : gbEaseOutBack(ekRaw);
+  // materialization entrance: fade + scale + flash
+  const ekRaw = qcClamp((fieldT - b.appearDelay) / 0.5);
+  const ek = reducedMotion ? (ekRaw >= 1 ? 1 : 0) : qcEaseOutBack(ekRaw);
   if (ek <= 0.01) return;
 
-  // idle float + sway
-  const floatY = reducedMotion ? 0 : Math.sin(t * 1.7 + b.seed * 6.283) * 9;
-  const sway = reducedMotion ? 0 : Math.sin(t * 1.13 + b.seed * 6.283) * 0.05;
+  // quantum dissolve for unpicked cubes
+  const dAlpha = b.dim ? 1 - b.dimT : 1;
+  const dRise = b.dim ? b.dimT * -70 : 0;
+  const dScale = b.dim ? 1 - b.dimT * 0.55 : 1;
+  const alpha = Math.min(ek, dAlpha);
+  if (alpha <= 0.01) return;
 
-  // pick shake jitter
+  // float physics: bob + drift
+  const bobY = reducedMotion ? 0 : Math.sin(t * 1.35 + b.seed * 6.283) * 11;
+  const driftX = reducedMotion ? 0 : Math.sin(t * 0.62 + b.seed * 6.283) * 15;
+  const cx = b.x + driftX;
+  const cy = b.y + bobY + dRise;
+
+  // destabilize jitter (shaking)
+  const glitch = b.phase === 'shaking' && !reducedMotion;
   let jx = 0;
   let jy = 0;
-  if (b.phase === 'shaking' && !reducedMotion) {
-    const k = 1 - gbClamp(b.phaseT / 0.5);
-    jx = (Math.random() * 2 - 1) * 8 * k;
-    jy = (Math.random() * 2 - 1) * 5 * k;
+  if (glitch) {
+    const k = 1 - qcClamp(b.phaseT / 0.5);
+    jx = (Math.random() * 2 - 1) * 10 * (0.4 + k * 0.6);
+    jy = (Math.random() * 2 - 1) * 7 * (0.4 + k * 0.6);
   }
 
-  // elegant dim fade for unpicked boxes
-  const alpha = b.dim ? 1 - b.dimT * 0.78 : 1;
-  const sink = b.dim ? b.dimT * 16 : 0;
-
-  const cx = b.x + jx;
-  const cy = b.y + floatY + jy + sink;
+  const r = 27 * Math.max(0.01, ek) * dScale;
 
   ctx.save();
   ctx.globalAlpha = alpha;
 
-  // breathing aura
-  const breathe = reducedMotion ? 0.8 : 0.62 + 0.28 * Math.sin(t * 2.3 + b.seed * 6.283);
-  let glowA = 0.4 * breathe;
-  let glowCol = '139,92,246';
-  if (b.phase === 'shaking') {
-    glowA = 0.75;
-    glowCol = '255,179,71';
+  // materialization flash ring
+  if (ek < 1 && !reducedMotion) {
+    const mk = qcEaseOutCubic(ek);
+    ctx.globalAlpha = alpha * (1 - mk) * 0.9;
+    ctx.strokeStyle = '#bdf3ff';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.arc(cx, cy, 20 + mk * 70, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.globalAlpha = alpha;
   }
-  if (b.phase === 'bursting' || b.phase === 'revealed') {
-    glowA = 0.85;
-    glowCol = '255,214,140';
-  }
-  const gr = 88;
-  const gg = ctx.createRadialGradient(cx, cy, 0, cx, cy, gr);
-  gg.addColorStop(0, `rgba(${glowCol},${glowA})`);
-  gg.addColorStop(1, `rgba(${glowCol},0)`);
-  ctx.fillStyle = gg;
+
+  // ---- aura: breathing energy field
+  const breathe = reducedMotion ? 0.75 : 0.6 + 0.3 * Math.sin(t * 2.6 + b.seed * 6.283);
+  let glowCol = '34,211,238';
+  let glowA = 0.42 * breathe;
+  if (b.phase === 'shaking') { glowCol = '217,70,239'; glowA = 0.8; }
+  if (b.phase === 'bursting' || b.phase === 'revealed') { glowCol = '255,240,200'; glowA = 0.9; }
+  const ag = ctx.createRadialGradient(cx, cy, 0, cx, cy, 96);
+  ag.addColorStop(0, `rgba(${glowCol},${glowA.toFixed(3)})`);
+  ag.addColorStop(1, `rgba(${glowCol},0)`);
+  ctx.fillStyle = ag;
   ctx.beginPath();
-  ctx.arc(cx, cy, gr, 0, Math.PI * 2);
+  ctx.arc(cx, cy, 96, 0, Math.PI * 2);
   ctx.fill();
 
   // pick shockwave ring
   if (b.ringT > 0 && b.ringT < 1) {
     ctx.globalAlpha = alpha * (1 - b.ringT) * 0.9;
-    ctx.strokeStyle = '#fff7e6';
+    ctx.strokeStyle = '#eafcff';
     ctx.lineWidth = 3;
     ctx.beginPath();
-    ctx.arc(cx, cy, 14 + b.ringT * 95, 0, Math.PI * 2);
+    ctx.arc(cx, cy, 16 + b.ringT * 100, 0, Math.PI * 2);
     ctx.stroke();
     ctx.globalAlpha = alpha;
   }
 
-  ctx.translate(cx, cy);
-  ctx.rotate(sway);
-  ctx.scale(Math.max(0.01, ek), Math.max(0.01, ek));
+  const ry = reducedMotion ? 0.6 : t * 0.85 + b.seed * 6.283;
+  const rx = reducedMotion ? 0.35 : 0.45 + 0.4 * Math.sin(t * 0.55 + b.seed * 6.283);
 
-  const open = b.phase === 'bursting' || b.phase === 'revealed';
-
-  // ---- light beam (bursting)
-  if (b.phase === 'bursting' && !reducedMotion) {
-    const bk = gbClamp(b.phaseT / 0.28) * (1 - gbClamp((b.phaseT - 0.55) / 0.45));
-    if (bk > 0.01) {
-      const bwPulse = 46 + 10 * Math.sin(t * 30);
-      const beam = ctx.createLinearGradient(0, -BH / 2, 0, -BH / 2 - 170);
-      beam.addColorStop(0, `rgba(255,244,214,${0.75 * bk})`);
-      beam.addColorStop(1, 'rgba(255,244,214,0)');
+  if (b.phase === 'bursting') {
+    drawCubeShatter(ctx, cx + jx, cy + jy, r, rx, ry, b.phaseT, t, b.seed, reducedMotion);
+    // vertical energy beam
+    const bk = qcClamp(b.phaseT / 0.25) * (1 - qcClamp((b.phaseT - 0.5) / 0.5));
+    if (bk > 0.01 && !reducedMotion) {
+      const bw = 54 + 12 * Math.sin(t * 34);
+      const beam = ctx.createLinearGradient(0, cy - r, 0, cy - r - 200);
+      beam.addColorStop(0, `rgba(220,250,255,${(0.85 * bk).toFixed(3)})`);
+      beam.addColorStop(1, 'rgba(220,250,255,0)');
       ctx.fillStyle = beam;
-      ctx.fillRect(-bwPulse / 2, -BH / 2 - 170, bwPulse, 170);
-      ctx.fillStyle = `rgba(255,255,255,${0.5 * bk})`;
-      ctx.fillRect(-5, -BH / 2 - 170, 10, 170);
+      ctx.fillRect(cx - bw / 2, cy - r - 200, bw, 200);
+      ctx.fillStyle = `rgba(255,255,255,${(0.55 * bk).toFixed(3)})`;
+      ctx.fillRect(cx - 5, cy - r - 200, 10, 200);
     }
+  } else {
+    if (glitch) {
+      // RGB energy-split: magenta/cyan ghost passes
+      drawCubeBody(ctx, cx - 7 + jx, cy + jy, r, rx, ry, t, b.seed, reducedMotion, 0);
+      drawCubeBody(ctx, cx + 7 + jx, cy + jy, r, rx, ry, t, b.seed, reducedMotion, 1);
+    }
+    drawCubeBody(ctx, cx + jx, cy + jy, r, rx, ry, t, b.seed, reducedMotion, -1);
   }
 
-  // ---- emerging prize star
+  // ---- prize star emerging from the core
+  const open = b.phase === 'bursting' || b.phase === 'revealed';
   if (open) {
-    const rk = b.phase === 'bursting' ? (reducedMotion ? 1 : gbEaseOutBack(gbClamp(b.phaseT / 0.55))) : 1;
-    const rise =
-      b.phase === 'bursting' && !reducedMotion ? (1 - gbEaseOutCubic(gbClamp(b.phaseT / 0.55))) * 52 : 0;
+    const rk = b.phase === 'bursting' ? (reducedMotion ? 1 : qcEaseOutBack(qcClamp(b.phaseT / 0.55))) : 1;
+    const rise = b.phase === 'bursting' && !reducedMotion ? (1 - qcEaseOutCubic(qcClamp(b.phaseT / 0.55))) * 56 : 0;
     const bob = b.phase === 'revealed' && !reducedMotion ? Math.sin(t * 2.2 + b.seed * 6.283) * 7 : 0;
-    const sy = -BH / 2 - 82 + rise + bob;
+    const sy = cy - r - 86 + rise + bob;
     const sr = 25 * Math.max(0.01, rk);
     if (rk > 0.02) {
       ctx.save();
-      ctx.translate(0, sy);
-      const hg = ctx.createRadialGradient(0, 0, 0, 0, 0, sr * 2.6);
-      hg.addColorStop(0, 'rgba(255,214,140,0.8)');
-      hg.addColorStop(1, 'rgba(255,214,140,0)');
+      ctx.translate(cx, sy);
+      const hg = ctx.createRadialGradient(0, 0, 0, 0, 0, sr * 2.8);
+      hg.addColorStop(0, 'rgba(255,230,170,0.85)');
+      hg.addColorStop(1, 'rgba(255,230,170,0)');
       ctx.fillStyle = hg;
       ctx.beginPath();
-      ctx.arc(0, 0, sr * 2.6, 0, Math.PI * 2);
+      ctx.arc(0, 0, sr * 2.8, 0, Math.PI * 2);
       ctx.fill();
       starPath(ctx, 0, 0, sr, reducedMotion ? 0 : t * 0.9 + b.seed);
       const sg = ctx.createLinearGradient(0, -sr, 0, sr);
@@ -682,7 +1070,6 @@ function drawGiftBox(
       }
       ctx.restore();
 
-      // prize label with count-up
       if (b.phase === 'revealed') {
         ctx.save();
         ctx.font = '700 32px ui-monospace, Menlo, Consolas, monospace';
@@ -691,97 +1078,21 @@ function drawGiftBox(
         ctx.fillStyle = PAL.hotWhite;
         ctx.shadowColor = PAL.molten;
         ctx.shadowBlur = 14;
-        ctx.fillText(`×${gbFmtPrize(b.shown)}`, 0, sy - sr - 28);
+        ctx.fillText(`×${qcFmtPrize(b.shown)}`, cx, sy - sr - 28);
         ctx.restore();
       }
     }
   }
 
-  // ---- box body
-  const bg = ctx.createLinearGradient(0, -BH / 2, 0, BH / 2);
-  bg.addColorStop(0, '#43308a');
-  bg.addColorStop(0.55, '#2c1c58');
-  bg.addColorStop(1, '#1a1136');
-  roundRect(ctx, -BW / 2, -BH / 2, BW, BH, 10);
-  ctx.fillStyle = bg;
-  ctx.fill();
-  ctx.strokeStyle = 'rgba(139,92,246,0.55)';
-  ctx.lineWidth = 2;
-  ctx.stroke();
-
-  // gold ribbon cross
-  const rib = ctx.createLinearGradient(-9, 0, 9, 0);
-  rib.addColorStop(0, '#c77e1e');
-  rib.addColorStop(0.5, '#ffd98a');
-  rib.addColorStop(1, '#c77e1e');
-  ctx.fillStyle = rib;
-  ctx.fillRect(-9, -BH / 2 + 2, 18, BH - 4);
-  ctx.fillRect(-BW / 2 + 2, -8, BW - 4, 16);
-  ctx.fillStyle = 'rgba(255,255,255,0.25)';
-  ctx.fillRect(-9, -BH / 2 + 2, 4, BH - 4);
-
-  if (open) {
-    // dark open mouth
-    ctx.fillStyle = 'rgba(4,2,10,0.92)';
-    ctx.beginPath();
-    ctx.ellipse(0, -BH / 2 + 4, BW / 2 - 8, 10, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(255,217,138,0.7)';
-    ctx.lineWidth = 2;
-    ctx.stroke();
-  } else {
-    // ---- lid (+ bow): flies off while bursting
-    let lx = 0;
-    let ly = 0;
-    let lr = 0;
-    let la = 1;
-    if (b.phase === 'bursting') {
-      const lk = gbEaseOutCubic(gbClamp(b.phaseT / 0.45));
-      if (reducedMotion) {
-        la = 1 - lk;
-      } else {
-        lx = lk * 46;
-        ly = -lk * 120;
-        lr = lk * 1.1;
-        la = 1 - lk * 0.9;
-      }
-    }
-    if (la > 0.01) {
-      ctx.save();
-      ctx.translate(lx, ly);
-      ctx.rotate(lr);
-      ctx.globalAlpha = alpha * la;
-      const lidW = BW + 10;
-      const lg = ctx.createLinearGradient(0, -BH / 2 - LIDH, 0, -BH / 2);
-      lg.addColorStop(0, '#5b3aa8');
-      lg.addColorStop(1, '#37236e');
-      roundRect(ctx, -lidW / 2, -BH / 2 - LIDH, lidW, LIDH, 8);
-      ctx.fillStyle = lg;
-      ctx.fill();
-      ctx.strokeStyle = 'rgba(196,181,253,0.6)';
-      ctx.lineWidth = 2;
-      ctx.stroke();
-      ctx.fillStyle = rib;
-      ctx.fillRect(-9, -BH / 2 - LIDH + 2, 18, LIDH - 2);
-      // bow
-      const by = -BH / 2 - LIDH;
-      ctx.fillStyle = '#ffcf7d';
-      ctx.strokeStyle = '#c77e1e';
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.ellipse(-13, by - 8, 13, 9, -0.5, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.ellipse(13, by - 8, 13, 9, 0.5, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.arc(0, by - 4, 7, 0, Math.PI * 2);
-      ctx.fillStyle = '#ffb347';
-      ctx.fill();
-      ctx.stroke();
-      ctx.restore();
+  // ---- quantum dissolve motes for unpicked cubes
+  if (b.dim && !reducedMotion && b.dimT > 0 && b.dimT < 1) {
+    for (let i = 0; i < 6; i++) {
+      const ma = b.seed * 6.283 + i * 1.05 + t * 0.8;
+      const mr = 30 + b.dimT * 60;
+      const mx = cx + Math.cos(ma) * mr * 0.6;
+      const my = cy + Math.sin(ma) * mr * 0.4 - b.dimT * 40;
+      ctx.fillStyle = `rgba(150,220,255,${(0.5 * (1 - b.dimT)).toFixed(3)})`;
+      ctx.fillRect(mx, my, 2.5, 2.5);
     }
   }
 
@@ -792,53 +1103,16 @@ export function drawSupernovaField(
   ctx: CanvasRenderingContext2D,
   t: number,
   zoom: number,
-  boxes: GiftBox[],
+  cubes: QuantumCube[],
   fieldT: number,
   reducedMotion: boolean,
 ): void {
-  // dim backdrop
-  ctx.fillStyle = `rgba(4,3,14,${0.82 * Math.min(1, zoom * 2)})`;
-  ctx.fillRect(0, 0, LW, LH);
+  // cross into the other universe: the base game dissolves behind this field
+  drawQuantumUniverse(ctx, t, zoom, reducedMotion);
 
-  // starfield zoom: streaks radiating outward
-  if (!reducedMotion && zoom > 0) {
-    ensureStarfield();
-    const cx = LW / 2;
-    const cy = LH / 2;
-    ctx.save();
-    ctx.lineWidth = 1.6;
-    for (const s of starfield!) {
-      const dx = s.x - cx;
-      const dy = s.y - cy;
-      const d = Math.hypot(dx, dy) || 1;
-      const ux = dx / d;
-      const uy = dy / d;
-      const lead = zoom * 130 * (0.4 + s.sp * 0.6);
-      const x2 = s.x + ux * lead;
-      const y2 = s.y + uy * lead;
-      const a = Math.min(0.75, zoom * 0.8);
-      const grad = ctx.createLinearGradient(s.x, s.y, x2, y2);
-      grad.addColorStop(0, `rgba(223,230,255,0)`);
-      grad.addColorStop(1, `rgba(223,230,255,${a})`);
-      ctx.strokeStyle = grad;
-      ctx.beginPath();
-      ctx.moveTo(s.x, s.y);
-      ctx.lineTo(x2, y2);
-      ctx.stroke();
-    }
-    ctx.restore();
-  }
-
-  // violet nebula core
-  const cg = ctx.createRadialGradient(LW / 2, LH * 0.42, 0, LW / 2, LH * 0.42, 420);
-  cg.addColorStop(0, 'rgba(139,92,246,0.28)');
-  cg.addColorStop(1, 'rgba(139,92,246,0)');
-  ctx.fillStyle = cg;
-  ctx.fillRect(0, 0, LW, LH);
-
-  // the 12 gift boxes
-  for (const b of boxes) {
-    drawGiftBox(ctx, t, b, fieldT, reducedMotion);
+  // the 12 quantum cubes
+  for (const b of cubes) {
+    drawQuantumCube(ctx, t, b, fieldT, reducedMotion);
   }
 }
 // ---------------------------------------------------------------------------

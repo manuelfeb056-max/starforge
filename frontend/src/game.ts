@@ -29,13 +29,13 @@ import {
   drawRays,
   drawSupernovaField,
   drawSymbol,
-  giftBoxPositions,
+  quantumCubePositions,
   spawnEmbers,
   spawnForgeBurst,
   spawnSparks,
   updateParticles,
-  type GiftBox,
   type Particle,
+  type QuantumCube,
 } from './render';
 import { audio } from './audio';
 import { Crucible, type ArtifactKey } from './crucible';
@@ -134,7 +134,7 @@ export class Game {
   private crucibleFlash = 0;
   private raysT = -1; // >=0 while big-win rays show
   private supernova: {
-    boxes: GiftBox[];
+    boxes: QuantumCube[];
     zoom: number;
     fieldT: number;
     prizes: number[];
@@ -226,13 +226,13 @@ export class Game {
         if (b.phase === 'shaking') {
           b.phaseT += dt;
           if (b.phaseT >= 0.5) {
-            // lid blows off: pop + burst
+            // cube destabilizes: glitch burst
             b.phase = 'bursting';
             b.phaseT = 0;
-            audio.giftPop();
+            audio.cubeBreak();
             if (!this.reducedMotion) {
-              spawnSparks(this.particles, b.x, b.y - 20, 30, '#ffb347');
-              spawnSparks(this.particles, b.x, b.y - 20, 16, '#fff7e6');
+              spawnSparks(this.particles, b.x, b.y - 20, 30, '#22d3ee');
+              spawnSparks(this.particles, b.x, b.y - 20, 16, '#d946ef');
             }
             this.addShake(4, 280);
           }
@@ -243,7 +243,7 @@ export class Game {
             b.phaseT = 0;
             b.shown = 0;
             b.tickAcc = 0;
-            audio.giftFanfare(b.prize);
+            audio.cubeReveal(b.prize);
           }
         } else if (b.phase === 'revealed') {
           b.phaseT += dt;
@@ -409,7 +409,8 @@ export class Game {
         b.ringT = 0.001;
         sn.picks.push(i);
         audio.pick(2);
-        if (!this.reducedMotion) spawnSparks(this.particles, b.x, b.y, 18, '#8b5cf6');
+        audio.supernovaMusicLayer(sn.picks.length);
+        if (!this.reducedMotion) spawnSparks(this.particles, b.x, b.y, 18, '#22d3ee');
         const left = 5 - sn.picks.length;
         this.cb.picksStatus(left > 0 ? this.S.picksLeft(left) : '');
         if (sn.picks.length >= 5) void this.finishPicks();
@@ -422,7 +423,8 @@ export class Game {
     const sn = this.supernova;
     if (!sn || sn.done) return;
     sn.done = true;
-    // let the box bursts + reveals play out before dimming the rest
+    // let the cube bursts + reveals play out, then the drop hits
+    audio.supernovaMusicDrop();
     await this.wait(1500);
     for (const b of sn.boxes) if (!b.picked) b.dim = true;
     this.cb.picksStatus('');
@@ -447,8 +449,8 @@ export class Game {
    */
   presentSupernovaPicks(prizes: number[]): Promise<{ picks: number[]; gamble: boolean }> {
     return new Promise(resolve => {
-      const pos = giftBoxPositions();
-      const boxes: GiftBox[] = pos.map((p, i) => ({
+      const pos = quantumCubePositions();
+      const boxes: QuantumCube[] = pos.map((p, i) => ({
         x: p.x,
         y: p.y,
         prize: prizes[i]!,
@@ -459,13 +461,15 @@ export class Game {
         phaseT: 0,
         ringT: 0,
         seed: Math.random(),
-        appearDelay: 0.15 + i * 0.05,
+        appearDelay: 0.3 + i * 0.06,
         shown: 0,
         tickAcc: 0,
       }));
       this.supernova = { boxes, zoom: 0, fieldT: 0, prizes, picks: [], resolve, done: false };
       this.state = 'supernova';
       const intro = async (): Promise<void> => {
+        // cross into the other universe: adaptive music starts instantly
+        audio.supernovaMusicStart();
         if (!this.reducedMotion && !this.skipFlag && !this.dead) {
           // cinematic beat: tension riser, then detonation
           audio.tensionRiser(750);
