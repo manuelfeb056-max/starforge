@@ -426,6 +426,91 @@ body {
 .btn-danger:hover { border-color: #ff5050; box-shadow: 0 0 12px rgba(255,80,80,0.3); }
 #lang-toggle { margin-left: auto; }
 
+/* ---------------- welcome overlay ---------------- */
+#welcome { z-index: 40; }
+.welcome-card {
+  text-align: center;
+  max-width: min(84cqw, 560px);
+  max-height: 92%;
+  overflow-y: auto;
+  padding: 3.6cqh 5cqw;
+  border: 1px solid rgba(255, 179, 71, 0.45);
+  border-radius: 2.4cqh;
+  background: radial-gradient(120% 120% at 50% 0%, #1c1a38 0%, #0a0a1c 60%, #050510 100%);
+  box-shadow: 0 0 90px rgba(255, 107, 26, 0.25), 0 0 24px rgba(139, 92, 246, 0.2);
+  animation: welcomeIn 0.5s cubic-bezier(0.2, 1.4, 0.4, 1);
+}
+@keyframes welcomeIn {
+  from { transform: scale(0.86) translateY(18px); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+#welcome-logo {
+  width: 24cqh; height: 24cqh;
+  object-fit: contain;
+  filter: drop-shadow(0 0 26px rgba(255, 107, 26, 0.45));
+  animation: logoFloat 4s ease-in-out infinite;
+}
+@keyframes logoFloat { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-8px); } }
+#welcome-tagline {
+  font-size: 2cqh;
+  letter-spacing: 0.5em;
+  font-weight: 700;
+  color: var(--muted);
+  margin: 1.6cqh 0 1cqh;
+}
+#welcome-note {
+  font-size: 1.9cqh;
+  line-height: 1.55;
+  color: var(--steel);
+  margin-bottom: 2.6cqh;
+}
+#btn-play {
+  font-family: var(--font);
+  font-weight: 900;
+  font-size: 2.6cqh;
+  letter-spacing: 0.24em;
+  padding: 1.8cqh 4.6cqw 1.8cqh calc(4.6cqw + 0.24em);
+  border: none;
+  border-radius: 1.6cqh;
+  cursor: pointer;
+  color: #1a0d02;
+  background: linear-gradient(180deg, var(--hot) 0%, var(--ember) 35%, var(--molten) 100%);
+  box-shadow: 0 0 34px rgba(255, 107, 26, 0.6), inset 0 1px 0 rgba(255,255,255,0.55);
+  transition: box-shadow 0.15s, transform 0.1s;
+}
+#btn-play:hover { box-shadow: 0 0 52px rgba(255, 107, 26, 0.9); transform: translateY(-2px); }
+#btn-play:active { transform: translateY(1px) scale(0.98); }
+#btn-play:focus-visible { outline: 3px solid var(--cyan); outline-offset: 3px; }
+.welcome-rtp {
+  margin-top: 2.2cqh;
+  font-family: var(--mono);
+  font-size: 1.5cqh;
+  color: var(--cyan);
+  letter-spacing: 0.08em;
+}
+
+/* ---------------- mobile ---------------- */
+@media (max-width: 700px) {
+  #left, #right { display: none; }
+  #topbar { gap: 1.6cqw; padding: 0 2.4cqw; }
+  #wordmark { font-size: 4cqh; letter-spacing: 0.3em; }
+  #wordmark small { font-size: 1.6cqh; }
+  #rtp-pill { display: none; }
+  .icon-btn { width: 6.2cqh; height: 6.2cqh; font-size: 2.8cqh; }
+  .pill { font-size: 2cqh; }
+  #bet-box .bet-label { display: none; }
+  .bet-btn { width: 6.6cqh; height: 6.6cqh; font-size: 3.2cqh; }
+  #bet-val { font-size: 3.6cqh; min-width: 14cqw; }
+  #btn-forge { font-size: 3.4cqh; padding: 2cqh 6cqw 2cqh calc(6cqw + 0.3em); }
+  #banner-title { font-size: 6cqh; }
+  #banner-amount { font-size: 7.5cqh; }
+  #toast { bottom: 16%; font-size: 2.2cqh; max-width: 86%; }
+  .gamble-card { padding: 4cqh 5cqw; max-width: 88cqw; }
+  #welcome-logo { width: 30cqh; height: 30cqh; }
+  #welcome-note { font-size: 2.3cqh; }
+  #btn-play { font-size: 3.2cqh; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   #banner.show, .gamble-card { animation: none; }
   #paybadge.pop { animation-duration: 0.01s; }

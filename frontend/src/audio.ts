@@ -108,6 +108,43 @@ class AudioEngine {
     src.stop(t + dur);
   }
 
+  /** Spin ignition whoosh — the forge breathes in before the drop. */
+  spinWhoosh(): void {
+    this.noise({ peak: 0.16, attack: 0.12, decay: 0.5, filterFreq: 300, filterEnd: 4500, filterType: 'bandpass', q: 1.1 });
+    this.tone({ freq: 90, freqEnd: 160, type: 'sine', peak: 0.14, attack: 0.1, decay: 0.4 });
+  }
+
+  /** Metallic mineral clink on cell landing; brighter by column. */
+  clink(column: number): void {
+    const f = 1400 + column * 260 + Math.random() * 120;
+    this.tone({ freq: f, type: 'triangle', peak: 0.07, attack: 0.002, decay: 0.09 });
+    this.tone({ freq: f * 2.71, type: 'sine', peak: 0.035, attack: 0.002, decay: 0.12 });
+  }
+
+  /** Soft column-stop thunk for cascade refills. */
+  reelStop(column: number): void {
+    this.noise({ peak: 0.08, decay: 0.05, filterFreq: 500 + column * 140, filterType: 'bandpass', q: 2.5 });
+  }
+
+  /** Low cinematic riser — pre-supernova tension / scatter anticipation. */
+  tensionRiser(durMs = 650): void {
+    const dur = durMs / 1000;
+    this.tone({ freq: 120, freqEnd: 480, type: 'sawtooth', peak: 0.1, attack: dur * 0.85, decay: 0.12 });
+    this.tone({ freq: 60, freqEnd: 240, type: 'triangle', peak: 0.12, attack: dur * 0.85, decay: 0.12 });
+    this.noise({ peak: 0.06, attack: dur * 0.8, decay: 0.15, filterFreq: 800, filterEnd: 3600, filterType: 'bandpass', q: 1.6 });
+  }
+
+  /** Tick for the win count-up. */
+  tick(): void {
+    this.tone({ freq: 1567, type: 'sine', peak: 0.05, attack: 0.002, decay: 0.03 });
+  }
+
+  /** Deep legendary boom layered over the win chime. */
+  legendaryBoom(): void {
+    this.tone({ freq: 70, freqEnd: 28, type: 'sine', peak: 0.5, attack: 0.008, decay: 1.1 });
+    this.noise({ peak: 0.22, attack: 0.01, decay: 0.8, filterFreq: 5000, filterEnd: 90, filterType: 'lowpass' });
+  }
+
   /** Symbol drop tick; pitch varies by column. */
   drop(column: number): void {
     this.noise({ peak: 0.12, decay: 0.06, filterFreq: 900 + column * 220, filterType: 'bandpass', q: 2 });

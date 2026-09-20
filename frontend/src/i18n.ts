@@ -54,6 +54,10 @@ export interface Strings {
   forfeited: string;
   connectFail: string;
   clickToSkip: string;
+  welcomePlay: string;
+  welcomeNote: string;
+  welcomeRtp: string;
+  rtpTitle: string;
 }
 
 const es: Strings = {
@@ -103,6 +107,10 @@ const es: Strings = {
   forfeited: 'Ronda expirada',
   connectFail: 'Sin anfitrión — modo demo',
   clickToSkip: 'clic para saltar',
+  welcomePlay: 'ENTRAR A LA FORJA',
+  welcomeNote: 'Tragamonedas 6×5 de forja cósmica. Forja minerales, desata la supernova, doble o nada.',
+  welcomeRtp: 'RTP 96.0% · Matemática verificable on-chain',
+  rtpTitle: 'Retorno teórico al jugador: 96.0% estable / ≥93% sin artefactos',
 };
 
 const en: Strings = {
@@ -152,6 +160,10 @@ const en: Strings = {
   forfeited: 'Round expired',
   connectFail: 'No host — demo mode',
   clickToSkip: 'click to skip',
+  welcomePlay: 'ENTER THE FORGE',
+  welcomeNote: 'Scatter-pay 6×5 cosmic-forge slot. Forge minerals, trigger the supernova, double or nothing.',
+  welcomeRtp: 'RTP 96.0% · On-chain verifiable math',
+  rtpTitle: 'Theoretical return to player: 96.0% steady / ≥93% fresh',
 };
 
 export const STR: Record<Locale, Strings> = { es, en };

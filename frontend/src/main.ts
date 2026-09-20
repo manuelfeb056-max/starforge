@@ -262,6 +262,11 @@ async function main(): Promise<void> {
     $('art-desc-temple').textContent = t.artifactTempleDesc;
     $('maxbet-note').textContent = t.maxBetNote;
     $('info-body').innerHTML = infoHTML();
+    $('welcome-tagline').textContent = t.tagline.toUpperCase();
+    $('welcome-note').textContent = t.welcomeNote;
+    $('btn-play').textContent = t.welcomePlay;
+    $('welcome-rtp').textContent = t.welcomeRtp;
+    ($('rtp-pill') as HTMLElement).title = t.rtpTitle;
     refreshCrucible();
   };
 
@@ -325,6 +330,13 @@ async function main(): Promise<void> {
     game.crucible.reset();
     refreshCrucible();
     callbacks.toast(S().resetDone);
+  });
+  $('btn-play').addEventListener('click', () => {
+    audio.unlock();
+    audio.startAmbient();
+    audio.button();
+    $('welcome').classList.remove('show');
+    driver?.reportSize();
   });
   $('lang-toggle').addEventListener('click', () => {
     audio.button();

@@ -30,6 +30,7 @@ import {
   drawSymbol,
   novaStarPositions,
   spawnEmbers,
+  spawnForgeBurst,
   spawnSparks,
   updateParticles,
   type NovaStar,
@@ -82,6 +83,14 @@ const easeOutBack = (k: number): number => {
   const c1 = 1.70158;
   const c3 = c1 + 1;
   return 1 + c3 * Math.pow(k - 1, 3) + c1 * Math.pow(k - 1, 2);
+};
+const easeOutBounce = (k: number): number => {
+  const n1 = 7.5625;
+  const d1 = 2.75;
+  if (k < 1 / d1) return n1 * k * k;
+  if (k < 2 / d1) return n1 * (k -= 1.5 / d1) * k + 0.75;
+  if (k < 2.5 / d1) return n1 * (k -= 2.25 / d1) * k + 0.9375;
+  return n1 * (k -= 2.625 / d1) * k + 0.984375;
 };
 
 interface CellV {
@@ -415,17 +424,30 @@ export class Game {
       }));
       this.supernova = { stars, zoom: 0, prizes, picks: [], resolve, done: false };
       this.state = 'supernova';
-      this.flash = 1;
-      audio.supernova();
-      this.cb.winBanner(2, this.S.supernova, '', '');
-      if (!this.reducedMotion) {
-        void this.tween(650, k => {
-          if (this.supernova) this.supernova.zoom = k;
-        });
-      } else if (this.supernova) {
-        this.supernova.zoom = 1;
-      }
-      this.cb.picksStatus(this.S.pickStars);
+      const intro = async (): Promise<void> => {
+        if (!this.reducedMotion && !this.skipFlag && !this.dead) {
+          // cinematic beat: tension riser, then detonation
+          audio.tensionRiser(750);
+          await this.wait(700);
+        }
+        this.flash = 1;
+        this.addShake(10, 700);
+        audio.supernova();
+        this.cb.winBanner(2, this.S.supernova, '', '');
+        if (!this.reducedMotion) {
+          // zoom punch with overshoot, then settle
+          await this.tween(520, k => {
+            if (this.supernova) this.supernova.zoom = k * 1.1;
+          }, easeOutCubic);
+          await this.tween(220, k => {
+            if (this.supernova) this.supernova.zoom = 1.1 - k * 0.1;
+          }, easeOutCubic);
+        } else if (this.supernova) {
+          this.supernova.zoom = 1;
+        }
+        this.cb.picksStatus(this.S.pickStars);
+      };
+      void intro();
     });
   }
 
@@ -450,6 +472,13 @@ export class Game {
     this.cb.clearBanner();
     this.balance -= bet;
     this.cb.setBalance(this.balanceText());
+
+    // spin ignition: whoosh + forge burst + micro shake
+    audio.spinWhoosh();
+    if (!this.reducedMotion) {
+      spawnForgeBurst(this.particles, GRID_X + (COLS * PITCH) / 2, GRID_Y + (ROWS * PITCH) / 2);
+      this.addShake(3, 260);
+    }
 
     const spin: SpinResult = runSpin(this.rng, this.artifacts);
     await this.animateGrid(spin);
@@ -524,11 +553,26 @@ export class Game {
     starCells.sort((a, b) => delayOf(a) - delayOf(b));
     const thirdStarAt = starCells.length >= 3 ? delayOf(starCells[2]!) + 300 : Infinity;
 
+    // suspense: 2+ stars landing early -> the last two columns drop slower (reel tension)
+    const starsEarly = starCells.length >= 2 && delayOf(starCells[1]!) <= 800;
+    const suspenseOf = (i: number): number => {
+      if (!starsEarly) return 0;
+      const col = i % COLS;
+      return col === 4 ? 280 : col === 5 ? 430 : 0;
+    };
+    if (starsEarly && !this.reducedMotion) {
+      setTimeout(() => {
+        if (this.skipFlag || this.dead || this.state !== 'busy') return;
+        audio.tensionRiser(900);
+      }, delayOf(starCells[1]!) + 200);
+    }
+
     const dropOne = async (i: number): Promise<void> => {
       const col = i % COLS;
-      await this.wait(delayOf(i));
+      await this.wait(delayOf(i) + suspenseOf(i));
       if (this.skipFlag || this.dead) return;
       audio.drop(col);
+      audio.clink(col);
       const c = this.cells[i]!;
       const dist = 900;
       await this.tween(340, k => {
@@ -592,6 +636,10 @@ export class Game {
       const tier: 0 | 1 | 2 = step.payX >= 50 ? 2 : step.payX >= 10 ? 1 : 0;
       this.cb.payBadge(`+${fmtX(step.payX)}×`);
       audio.win(tier);
+      if (step.payX >= 10 && !this.reducedMotion) {
+        this.addShake(4, 220);
+        spawnEmbers(this.particles, GRID_X + (COLS * PITCH) / 2, GRID_Y + (ROWS * PITCH) / 2, 18);
+      }
 
       // Yunque: boosted tier-3 scatter win → anvil slam
       if ((this.artifacts & ART.YUNQUE) !== 0 && step.wins.some(w => w.tier === 2)) {
@@ -644,17 +692,18 @@ export class Game {
             continue;
           }
           fallAnims.push(
-            (async (ii: number, d: number, dl: number) => {
+            (async (ii: number, d: number, dl: number, cc: number) => {
               await this.wait(dl);
               if (this.skipFlag || this.dead) return;
               const c = this.cells[ii]!;
               c.alpha = 1;
-              await this.tween(300, k => {
+              await this.tween(380, k => {
                 c.dy = -d * (1 - k);
-              }, easeInCubic);
+              }, easeOutBounce);
               c.dy = 0;
               c.scale = 1;
-            })(i, dist, col * 45),
+              if (!this.skipFlag && !this.dead) audio.reelStop(cc);
+            })(i, dist, col * 45, col),
           );
         }
       }
@@ -706,24 +755,33 @@ export class Game {
     const tier: 0 | 1 | 2 = x >= 50 ? 2 : x >= 10 ? 1 : 0;
     const title = tier === 2 ? S.legendary : tier === 1 ? `×${fmtX(x)}` : S.lastWin;
     if (tier === 2) {
-      this.flash = 0.9;
-      this.addShake(7, 500);
+      this.flash = 1;
+      this.addShake(10, 650);
       this.raysT = 0;
+      audio.legendaryBoom();
     } else if (tier === 1) {
       this.raysT = 0;
+      this.addShake(3, 250);
     }
     if (!this.reducedMotion) {
-      for (let k = 0; k < 3; k++) {
-        spawnEmbers(this.particles, LW / 2 + (Math.random() - 0.5) * 300, LH * 0.42, 24);
+      const bursts = tier === 2 ? 5 : 3;
+      for (let k = 0; k < bursts; k++) {
+        spawnEmbers(this.particles, LW / 2 + (Math.random() - 0.5) * 300, LH * 0.42, tier === 2 ? 30 : 24);
       }
     }
     audio.win(tier);
-    // count-up
+    // count-up with audible ticks
     const el = $('banner-amount');
     const dur = this.reducedMotion || this.skipFlag ? 60 : tier === 2 ? 2200 : tier === 1 ? 1500 : 900;
     this.cb.winBanner(tier, title, '', tier === 2 ? `×${fmtX(x)}` : '');
+    let lastTick = 0;
     await this.tween(dur, k => {
       el.textContent = fmtInt(amount * k);
+      const now = performance.now();
+      if (!this.reducedMotion && now - lastTick > 110) {
+        lastTick = now;
+        audio.tick();
+      }
     }, easeOutCubic);
     el.textContent = fmtInt(amount);
     await this.wait(tier === 2 ? 1600 : 1100);

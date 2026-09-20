@@ -1,6 +1,6 @@
 # STARFORGE — Submission Kit (Chain Jam Vol. 1, deadline 2026-09-20 23:59 UTC)
 
-Estado (2026-09-19): TODO LISTO. Falta solo el usuario de Discord de Mannuel + el submit final.
+Estado (2026-09-20 14:06 UTC): ✅ ENVIADO en ambas rutas. DoraHacks registrado; jam.chain.wtf ACEPTADO — entry ID `j5770z8m01rqft44vvsxprat9d8er8js` (guardarlo; funciona desde cualquier dispositivo). Deadline extendido al 2026/09/27 10:25 según DoraHacks.
 
 ## Lo ya completado
 - [x] Contrato `StarforgeGame.sol` compila (Solidity 0.8.30)

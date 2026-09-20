@@ -683,6 +683,27 @@ export interface Particle {
   drag: number;
 }
 
+export function spawnForgeBurst(parts: Particle[], x: number, y: number): void {
+  const colors = ['#fff7e6', '#ffb347', '#ff6b1a', '#22d3ee'];
+  for (let i = 0; i < 42; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const sp = 90 + Math.random() * 380;
+    const life = 0.4 + Math.random() * 0.6;
+    parts.push({
+      x: x + (Math.random() - 0.5) * 40,
+      y: y + (Math.random() - 0.5) * 20,
+      vx: Math.cos(a) * sp,
+      vy: Math.sin(a) * sp * 0.7 - 120 * Math.random(),
+      life,
+      maxLife: life,
+      size: 2 + Math.random() * 5,
+      color: colors[(Math.random() * colors.length) | 0]!,
+      grav: 420,
+      drag: 0.97,
+    });
+  }
+}
+
 export function spawnEmbers(parts: Particle[], x: number, y: number, n: number, spread = 160, up = -260): void {
   const colors = ['#ff6b1a', '#ffb347', '#fff7e6', '#ff8c3a'];
   for (let i = 0; i < n; i++) {
