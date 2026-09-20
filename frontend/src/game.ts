@@ -29,12 +29,12 @@ import {
   drawRays,
   drawSupernovaField,
   drawSymbol,
-  novaStarPositions,
+  giftBoxPositions,
   spawnEmbers,
   spawnForgeBurst,
   spawnSparks,
   updateParticles,
-  type NovaStar,
+  type GiftBox,
   type Particle,
 } from './render';
 import { audio } from './audio';
@@ -134,8 +134,9 @@ export class Game {
   private crucibleFlash = 0;
   private raysT = -1; // >=0 while big-win rays show
   private supernova: {
-    stars: NovaStar[];
+    boxes: GiftBox[];
     zoom: number;
+    fieldT: number;
     prizes: number[];
     picks: number[];
     resolve: (v: { picks: number[]; gamble: boolean }) => void;
@@ -217,11 +218,43 @@ export class Game {
       if (this.raysT > 3.2) this.raysT = -1;
     }
     if (this.supernova) {
-      for (const st of this.supernova.stars) {
-        if (st.picked) {
-          st.pickT += dt;
-          if (st.pickT > 0.32) st.revealed = true;
-          if (st.ringT < 1) st.ringT = Math.min(1, st.ringT + dt * 2.4);
+      const sn = this.supernova;
+      sn.fieldT += dt;
+      for (const b of sn.boxes) {
+        if (b.dim && b.dimT < 1) b.dimT = Math.min(1, b.dimT + dt * 2.2);
+        if (b.ringT > 0 && b.ringT < 1) b.ringT = Math.min(1, b.ringT + dt * 2.4);
+        if (b.phase === 'shaking') {
+          b.phaseT += dt;
+          if (b.phaseT >= 0.5) {
+            // lid blows off: pop + burst
+            b.phase = 'bursting';
+            b.phaseT = 0;
+            audio.giftPop();
+            if (!this.reducedMotion) {
+              spawnSparks(this.particles, b.x, b.y - 20, 30, '#ffb347');
+              spawnSparks(this.particles, b.x, b.y - 20, 16, '#fff7e6');
+            }
+            this.addShake(4, 280);
+          }
+        } else if (b.phase === 'bursting') {
+          b.phaseT += dt;
+          if (b.phaseT >= 1.0) {
+            b.phase = 'revealed';
+            b.phaseT = 0;
+            b.shown = 0;
+            b.tickAcc = 0;
+            audio.giftFanfare(b.prize);
+          }
+        } else if (b.phase === 'revealed') {
+          b.phaseT += dt;
+          if (b.shown < b.prize) {
+            b.shown = Math.min(b.prize, b.shown + (b.prize * dt) / 0.7);
+            b.tickAcc += dt;
+            if (b.tickAcc > 0.09) {
+              b.tickAcc = 0;
+              audio.tick();
+            }
+          }
         }
       }
     }
@@ -264,7 +297,7 @@ export class Game {
 
     // supernova overlay (no shake)
     if (this.supernova) {
-      drawSupernovaField(ctx, this.t, this.supernova.zoom, this.supernova.stars, this.reducedMotion);
+      drawSupernovaField(ctx, this.t, this.supernova.zoom, this.supernova.boxes, this.supernova.fieldT, this.reducedMotion);
     }
   }
 
@@ -357,25 +390,26 @@ export class Game {
       const rect = this.canvas.getBoundingClientRect();
       const x = ((e.clientX - rect.left) / rect.width) * LW;
       const y = ((e.clientY - rect.top) / rect.height) * LH;
-      this.pickStarAt(x, y);
+      this.pickBoxAt(x, y);
       return;
     }
     if (this.state === 'busy') this.skip();
   }
 
-  private pickStarAt(x: number, y: number): void {
+  private pickBoxAt(x: number, y: number): void {
     const sn = this.supernova;
     if (!sn || sn.picks.length >= 5) return;
-    for (let i = 0; i < sn.stars.length; i++) {
-      const st = sn.stars[i]!;
-      if (st.picked) continue;
-      if (Math.hypot(st.x - x, st.y - y) < 52) {
-        st.picked = true;
-        st.pickT = 0;
-        st.ringT = 0.001;
+    for (let i = 0; i < sn.boxes.length; i++) {
+      const b = sn.boxes[i]!;
+      if (b.picked) continue;
+      if (Math.hypot(b.x - x, b.y - y) < 58) {
+        b.picked = true;
+        b.phase = 'shaking';
+        b.phaseT = 0;
+        b.ringT = 0.001;
         sn.picks.push(i);
-        audio.pick(st.prize);
-        if (!this.reducedMotion) spawnSparks(this.particles, st.x, st.y, 26, '#8b5cf6');
+        audio.pick(2);
+        if (!this.reducedMotion) spawnSparks(this.particles, b.x, b.y, 18, '#8b5cf6');
         const left = 5 - sn.picks.length;
         this.cb.picksStatus(left > 0 ? this.S.picksLeft(left) : '');
         if (sn.picks.length >= 5) void this.finishPicks();
@@ -388,8 +422,9 @@ export class Game {
     const sn = this.supernova;
     if (!sn || sn.done) return;
     sn.done = true;
-    await this.wait(750);
-    for (const st of sn.stars) if (!st.picked) st.dim = true;
+    // let the box bursts + reveals play out before dimming the rest
+    await this.wait(1500);
+    for (const b of sn.boxes) if (!b.picked) b.dim = true;
     this.cb.picksStatus('');
     const sumX = sn.picks.reduce((s, i) => s + sn.prizes[i]!, 0);
     const gamble = await this.cb.gambleChoice(`×${fmtX(sumX)}`);
@@ -412,18 +447,23 @@ export class Game {
    */
   presentSupernovaPicks(prizes: number[]): Promise<{ picks: number[]; gamble: boolean }> {
     return new Promise(resolve => {
-      const pos = novaStarPositions();
-      const stars: NovaStar[] = pos.map((p, i) => ({
+      const pos = giftBoxPositions();
+      const boxes: GiftBox[] = pos.map((p, i) => ({
         x: p.x,
         y: p.y,
         prize: prizes[i]!,
+        phase: 'idle',
         picked: false,
-        revealed: false,
         dim: false,
-        pickT: 0,
+        dimT: 0,
+        phaseT: 0,
         ringT: 0,
+        seed: Math.random(),
+        appearDelay: 0.15 + i * 0.05,
+        shown: 0,
+        tickAcc: 0,
       }));
-      this.supernova = { stars, zoom: 0, prizes, picks: [], resolve, done: false };
+      this.supernova = { boxes, zoom: 0, fieldT: 0, prizes, picks: [], resolve, done: false };
       this.state = 'supernova';
       const intro = async (): Promise<void> => {
         if (!this.reducedMotion && !this.skipFlag && !this.dead) {

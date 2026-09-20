@@ -503,22 +503,38 @@ export function drawCrucible(ctx: CanvasRenderingContext2D, x: number, y: number
 }
 
 // ---------------------------------------------------------------------------
-// supernova overlay
+// supernova overlay — gift-box pick bonus
 // ---------------------------------------------------------------------------
 
-export interface NovaStar {
-  x: number;
+export interface GiftBox {
+  x: number; // anchor: center of the box body
   y: number;
-  prize: number;
+  prize: number; // hidden multiplier
+  phase: 'idle' | 'shaking' | 'bursting' | 'revealed';
   picked: boolean;
-  revealed: boolean;
   dim: boolean;
-  pickT: number; // time since picked (for collapse anim)
-  ringT: number; // shockwave progress 0..1
+  dimT: number; // 0..1 elegant fade for unpicked boxes
+  phaseT: number; // seconds in current phase
+  ringT: number; // shockwave 0..1
+  seed: number; // per-box random offset
+  appearDelay: number; // staggered entrance
+  shown: number; // count-up display value
+  tickAcc: number; // accumulator for count-up ticks
 }
 
-/** 12 stars in a 4x3 arc formation. */
-export function novaStarPositions(): Array<{ x: number; y: number }> {
+const gbClamp = (v: number): number => Math.max(0, Math.min(1, v));
+const gbEaseOutCubic = (k: number): number => 1 - Math.pow(1 - k, 3);
+const gbEaseOutBack = (k: number): number => {
+  const c = 1.70158;
+  return 1 + (c + 1) * Math.pow(k - 1, 3) + c * Math.pow(k - 1, 2);
+};
+
+function gbFmtPrize(v: number): string {
+  return Number.isInteger(v) ? String(v) : v.toFixed(1);
+}
+
+/** 12 gift boxes in a 4x3 arc formation. */
+export function giftBoxPositions(): Array<{ x: number; y: number }> {
   const pos: Array<{ x: number; y: number }> = [];
   for (let row = 0; row < 3; row++) {
     for (let col = 0; col < 4; col++) {
@@ -532,7 +548,254 @@ export function novaStarPositions(): Array<{ x: number; y: number }> {
   return pos;
 }
 
-export function drawSupernovaField(ctx: CanvasRenderingContext2D, t: number, zoom: number, stars: NovaStar[], reducedMotion: boolean): void {
+function drawGiftBox(
+  ctx: CanvasRenderingContext2D,
+  t: number,
+  b: GiftBox,
+  fieldT: number,
+  reducedMotion: boolean,
+): void {
+  const BW = 78;
+  const BH = 60;
+  const LIDH = 22;
+
+  // staggered entrance
+  const ekRaw = gbClamp((fieldT - b.appearDelay) / 0.45);
+  const ek = reducedMotion ? (ekRaw >= 1 ? 1 : 0) : gbEaseOutBack(ekRaw);
+  if (ek <= 0.01) return;
+
+  // idle float + sway
+  const floatY = reducedMotion ? 0 : Math.sin(t * 1.7 + b.seed * 6.283) * 9;
+  const sway = reducedMotion ? 0 : Math.sin(t * 1.13 + b.seed * 6.283) * 0.05;
+
+  // pick shake jitter
+  let jx = 0;
+  let jy = 0;
+  if (b.phase === 'shaking' && !reducedMotion) {
+    const k = 1 - gbClamp(b.phaseT / 0.5);
+    jx = (Math.random() * 2 - 1) * 8 * k;
+    jy = (Math.random() * 2 - 1) * 5 * k;
+  }
+
+  // elegant dim fade for unpicked boxes
+  const alpha = b.dim ? 1 - b.dimT * 0.78 : 1;
+  const sink = b.dim ? b.dimT * 16 : 0;
+
+  const cx = b.x + jx;
+  const cy = b.y + floatY + jy + sink;
+
+  ctx.save();
+  ctx.globalAlpha = alpha;
+
+  // breathing aura
+  const breathe = reducedMotion ? 0.8 : 0.62 + 0.28 * Math.sin(t * 2.3 + b.seed * 6.283);
+  let glowA = 0.4 * breathe;
+  let glowCol = '139,92,246';
+  if (b.phase === 'shaking') {
+    glowA = 0.75;
+    glowCol = '255,179,71';
+  }
+  if (b.phase === 'bursting' || b.phase === 'revealed') {
+    glowA = 0.85;
+    glowCol = '255,214,140';
+  }
+  const gr = 88;
+  const gg = ctx.createRadialGradient(cx, cy, 0, cx, cy, gr);
+  gg.addColorStop(0, `rgba(${glowCol},${glowA})`);
+  gg.addColorStop(1, `rgba(${glowCol},0)`);
+  ctx.fillStyle = gg;
+  ctx.beginPath();
+  ctx.arc(cx, cy, gr, 0, Math.PI * 2);
+  ctx.fill();
+
+  // pick shockwave ring
+  if (b.ringT > 0 && b.ringT < 1) {
+    ctx.globalAlpha = alpha * (1 - b.ringT) * 0.9;
+    ctx.strokeStyle = '#fff7e6';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(cx, cy, 14 + b.ringT * 95, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.globalAlpha = alpha;
+  }
+
+  ctx.translate(cx, cy);
+  ctx.rotate(sway);
+  ctx.scale(Math.max(0.01, ek), Math.max(0.01, ek));
+
+  const open = b.phase === 'bursting' || b.phase === 'revealed';
+
+  // ---- light beam (bursting)
+  if (b.phase === 'bursting' && !reducedMotion) {
+    const bk = gbClamp(b.phaseT / 0.28) * (1 - gbClamp((b.phaseT - 0.55) / 0.45));
+    if (bk > 0.01) {
+      const bwPulse = 46 + 10 * Math.sin(t * 30);
+      const beam = ctx.createLinearGradient(0, -BH / 2, 0, -BH / 2 - 170);
+      beam.addColorStop(0, `rgba(255,244,214,${0.75 * bk})`);
+      beam.addColorStop(1, 'rgba(255,244,214,0)');
+      ctx.fillStyle = beam;
+      ctx.fillRect(-bwPulse / 2, -BH / 2 - 170, bwPulse, 170);
+      ctx.fillStyle = `rgba(255,255,255,${0.5 * bk})`;
+      ctx.fillRect(-5, -BH / 2 - 170, 10, 170);
+    }
+  }
+
+  // ---- emerging prize star
+  if (open) {
+    const rk = b.phase === 'bursting' ? (reducedMotion ? 1 : gbEaseOutBack(gbClamp(b.phaseT / 0.55))) : 1;
+    const rise =
+      b.phase === 'bursting' && !reducedMotion ? (1 - gbEaseOutCubic(gbClamp(b.phaseT / 0.55))) * 52 : 0;
+    const bob = b.phase === 'revealed' && !reducedMotion ? Math.sin(t * 2.2 + b.seed * 6.283) * 7 : 0;
+    const sy = -BH / 2 - 82 + rise + bob;
+    const sr = 25 * Math.max(0.01, rk);
+    if (rk > 0.02) {
+      ctx.save();
+      ctx.translate(0, sy);
+      const hg = ctx.createRadialGradient(0, 0, 0, 0, 0, sr * 2.6);
+      hg.addColorStop(0, 'rgba(255,214,140,0.8)');
+      hg.addColorStop(1, 'rgba(255,214,140,0)');
+      ctx.fillStyle = hg;
+      ctx.beginPath();
+      ctx.arc(0, 0, sr * 2.6, 0, Math.PI * 2);
+      ctx.fill();
+      starPath(ctx, 0, 0, sr, reducedMotion ? 0 : t * 0.9 + b.seed);
+      const sg = ctx.createLinearGradient(0, -sr, 0, sr);
+      sg.addColorStop(0, '#ffffff');
+      sg.addColorStop(0.55, '#ffe9b8');
+      sg.addColorStop(1, '#ff9d2e');
+      ctx.fillStyle = sg;
+      ctx.shadowColor = '#ffb347';
+      ctx.shadowBlur = 26;
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      if (!reducedMotion) {
+        ctx.fillStyle = 'rgba(255,247,230,0.95)';
+        for (let s = 0; s < 4; s++) {
+          const sa = b.seed * 6.283 + s * 1.7 + t * 1.4;
+          const sd = sr * (1.7 + 0.5 * Math.sin(t * 3 + s));
+          const sx = Math.cos(sa) * sd;
+          const syy = Math.sin(sa) * sd;
+          const ss = 3 + 2 * Math.sin(t * 5 + s * 2);
+          ctx.fillRect(sx - ss / 2, syy - 0.75, ss, 1.5);
+          ctx.fillRect(sx - 0.75, syy - ss / 2, 1.5, ss);
+        }
+      }
+      ctx.restore();
+
+      // prize label with count-up
+      if (b.phase === 'revealed') {
+        ctx.save();
+        ctx.font = '700 32px ui-monospace, Menlo, Consolas, monospace';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillStyle = PAL.hotWhite;
+        ctx.shadowColor = PAL.molten;
+        ctx.shadowBlur = 14;
+        ctx.fillText(`×${gbFmtPrize(b.shown)}`, 0, sy - sr - 28);
+        ctx.restore();
+      }
+    }
+  }
+
+  // ---- box body
+  const bg = ctx.createLinearGradient(0, -BH / 2, 0, BH / 2);
+  bg.addColorStop(0, '#43308a');
+  bg.addColorStop(0.55, '#2c1c58');
+  bg.addColorStop(1, '#1a1136');
+  roundRect(ctx, -BW / 2, -BH / 2, BW, BH, 10);
+  ctx.fillStyle = bg;
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(139,92,246,0.55)';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  // gold ribbon cross
+  const rib = ctx.createLinearGradient(-9, 0, 9, 0);
+  rib.addColorStop(0, '#c77e1e');
+  rib.addColorStop(0.5, '#ffd98a');
+  rib.addColorStop(1, '#c77e1e');
+  ctx.fillStyle = rib;
+  ctx.fillRect(-9, -BH / 2 + 2, 18, BH - 4);
+  ctx.fillRect(-BW / 2 + 2, -8, BW - 4, 16);
+  ctx.fillStyle = 'rgba(255,255,255,0.25)';
+  ctx.fillRect(-9, -BH / 2 + 2, 4, BH - 4);
+
+  if (open) {
+    // dark open mouth
+    ctx.fillStyle = 'rgba(4,2,10,0.92)';
+    ctx.beginPath();
+    ctx.ellipse(0, -BH / 2 + 4, BW / 2 - 8, 10, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,217,138,0.7)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  } else {
+    // ---- lid (+ bow): flies off while bursting
+    let lx = 0;
+    let ly = 0;
+    let lr = 0;
+    let la = 1;
+    if (b.phase === 'bursting') {
+      const lk = gbEaseOutCubic(gbClamp(b.phaseT / 0.45));
+      if (reducedMotion) {
+        la = 1 - lk;
+      } else {
+        lx = lk * 46;
+        ly = -lk * 120;
+        lr = lk * 1.1;
+        la = 1 - lk * 0.9;
+      }
+    }
+    if (la > 0.01) {
+      ctx.save();
+      ctx.translate(lx, ly);
+      ctx.rotate(lr);
+      ctx.globalAlpha = alpha * la;
+      const lidW = BW + 10;
+      const lg = ctx.createLinearGradient(0, -BH / 2 - LIDH, 0, -BH / 2);
+      lg.addColorStop(0, '#5b3aa8');
+      lg.addColorStop(1, '#37236e');
+      roundRect(ctx, -lidW / 2, -BH / 2 - LIDH, lidW, LIDH, 8);
+      ctx.fillStyle = lg;
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(196,181,253,0.6)';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      ctx.fillStyle = rib;
+      ctx.fillRect(-9, -BH / 2 - LIDH + 2, 18, LIDH - 2);
+      // bow
+      const by = -BH / 2 - LIDH;
+      ctx.fillStyle = '#ffcf7d';
+      ctx.strokeStyle = '#c77e1e';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.ellipse(-13, by - 8, 13, 9, -0.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.ellipse(13, by - 8, 13, 9, 0.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(0, by - 4, 7, 0, Math.PI * 2);
+      ctx.fillStyle = '#ffb347';
+      ctx.fill();
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+
+  ctx.restore();
+}
+
+export function drawSupernovaField(
+  ctx: CanvasRenderingContext2D,
+  t: number,
+  zoom: number,
+  boxes: GiftBox[],
+  fieldT: number,
+  reducedMotion: boolean,
+): void {
   // dim backdrop
   ctx.fillStyle = `rgba(4,3,14,${0.82 * Math.min(1, zoom * 2)})`;
   ctx.fillRect(0, 0, LW, LH);
@@ -573,72 +836,11 @@ export function drawSupernovaField(ctx: CanvasRenderingContext2D, t: number, zoo
   ctx.fillStyle = cg;
   ctx.fillRect(0, 0, LW, LH);
 
-  // the 12 stars
-  for (const st of stars) {
-    ctx.save();
-    const tw = reducedMotion ? 0.85 : 0.65 + 0.35 * Math.sin(t * 2.4 + st.x * 0.01 + st.y * 0.013);
-    if (st.dim) ctx.globalAlpha = 0.22;
-    else ctx.globalAlpha = tw;
-
-    const R = 26;
-    // glow
-    const gg = ctx.createRadialGradient(st.x, st.y, 0, st.x, st.y, R * 2.2);
-    gg.addColorStop(0, st.picked ? 'rgba(255,247,230,0.9)' : 'rgba(139,92,246,0.55)');
-    gg.addColorStop(1, 'rgba(139,92,246,0)');
-    ctx.fillStyle = gg;
-    ctx.beginPath();
-    ctx.arc(st.x, st.y, R * 2.2, 0, Math.PI * 2);
-    ctx.fill();
-
-    if (st.picked && !st.revealed) {
-      // collapse: shrink + white flash
-      const k = Math.max(0.05, 1 - st.pickT * 3);
-      starPath(ctx, st.x, st.y, R * k, t * 4);
-      ctx.fillStyle = '#fff7e6';
-      ctx.shadowColor = '#fff7e6';
-      ctx.shadowBlur = 30;
-      ctx.fill();
-      ctx.shadowBlur = 0;
-    } else if (st.revealed) {
-      // revealed prize
-      starPath(ctx, st.x, st.y, R * 0.45, 0);
-      ctx.fillStyle = 'rgba(255,247,230,0.9)';
-      ctx.fill();
-      ctx.globalAlpha = 1;
-      ctx.fillStyle = PAL.hotWhite;
-      ctx.font = `700 30px ui-monospace, Menlo, Consolas, monospace`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.shadowColor = PAL.molten;
-      ctx.shadowBlur = 12;
-      ctx.fillText(`×${st.prize}`, st.x, st.y - R * 1.15);
-      ctx.shadowBlur = 0;
-    } else {
-      starPath(ctx, st.x, st.y, R, t * 0.6 + st.x);
-      const sg = ctx.createLinearGradient(st.x, st.y - R, st.x, st.y + R);
-      sg.addColorStop(0, '#ffffff');
-      sg.addColorStop(0.55, '#cfd6ff');
-      sg.addColorStop(1, PAL.violet);
-      ctx.fillStyle = sg;
-      ctx.shadowColor = PAL.violet;
-      ctx.shadowBlur = 22;
-      ctx.fill();
-      ctx.shadowBlur = 0;
-    }
-
-    // shockwave ring
-    if (st.ringT > 0 && st.ringT < 1) {
-      ctx.globalAlpha = (1 - st.ringT) * 0.9;
-      ctx.strokeStyle = '#fff7e6';
-      ctx.lineWidth = 3;
-      ctx.beginPath();
-      ctx.arc(st.x, st.y, 12 + st.ringT * 90, 0, Math.PI * 2);
-      ctx.stroke();
-    }
-    ctx.restore();
+  // the 12 gift boxes
+  for (const b of boxes) {
+    drawGiftBox(ctx, t, b, fieldT, reducedMotion);
   }
 }
-
 // ---------------------------------------------------------------------------
 // win rays (big-win backdrop)
 // ---------------------------------------------------------------------------

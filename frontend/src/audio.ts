@@ -206,6 +206,29 @@ class AudioEngine {
     this.tone({ freq: freq * 2, type: 'sine', peak: 0.1, decay: 0.3 });
   }
 
+  /** Gift box pop — cork burst when a supernova gift blows its lid. */
+  giftPop(): void {
+    this.noise({ peak: 0.3, attack: 0.002, decay: 0.09, filterFreq: 2500, filterType: 'bandpass', q: 1.2 });
+    this.tone({ freq: 320, freqEnd: 1400, type: 'square', peak: 0.1, attack: 0.004, decay: 0.12 });
+    this.tone({ freq: 160, freqEnd: 700, type: 'triangle', peak: 0.18, attack: 0.004, decay: 0.14 });
+  }
+
+  /** Gift reveal fanfare — rising chime arpeggio, brighter for bigger prizes. */
+  giftFanfare(prizeX: number): void {
+    const base = 659.25 * Math.pow(2, Math.min(prizeX, 12) / 24);
+    const notes = [0, 4, 7, 12, 16];
+    notes.forEach((s, i) => {
+      this.tone({
+        freq: base * Math.pow(2, s / 12),
+        type: i % 2 ? 'triangle' : 'sine',
+        peak: 0.2,
+        decay: 0.55,
+        delay: i * 0.06,
+      });
+    });
+    this.tone({ freq: base * 4, type: 'sine', peak: 0.06, decay: 0.9, delay: 0.3 });
+  }
+
   gambleWin(): void {
     const notes = [523.25, 659.25, 783.99, 1046.5];
     notes.forEach((f, i) => this.tone({ freq: f, type: 'triangle', peak: 0.22, decay: 0.4, delay: i * 0.09 }));
