@@ -457,6 +457,9 @@ export class Game {
    * No spin, no bet deducted — pure showcase of the bonus round.
    */
   async demoSupernova(): Promise<void> {
+    // wait for the host handshake to settle (demo fallback ~1500ms) before
+    // forcing the idle-only bonus path
+    for (let i = 0; i < 20 && this.state !== 'idle'; i++) await this.wait(500);
     if (this.state !== 'idle') return;
     this.state = 'busy';
     this.skipFlag = false;
