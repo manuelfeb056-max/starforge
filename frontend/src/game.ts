@@ -76,7 +76,12 @@ import {
   OD_SEG_META,
   OD_WHEEL_ORDER,
   drawHellWheel,
+  drawOdBackdrop,
+  drawOdCracks,
+  drawOdEmbers,
   drawOdPointer,
+  drawOdRevealBurst,
+  drawOdTakeoverTitle,
   drawOdWheel,
   odAngleForSegment,
   odSegmentAt,
@@ -174,11 +179,16 @@ interface NovaScene {
   tickAcc: number;
 }
 
+/** Extra easing helpers for the overdrive cinematic (visual only). */
+const easeOutQuad = (x: number): number => 1 - (1 - x) * (1 - x);
+const easeInOut = (x: number): number => (x < 0.5 ? 2 * x * x : 1 - Math.pow(-2 * x + 2, 2) / 2);
+
 /**
  * Live state of the FURNACE OVERDRIVE wheel. The math arrives as an OdPlan
- * (see overdrive.ts); this scene replays it cinematically: a rigged wheel
- * spin with real-feeling physics (ease-out deceleration, segment ticks,
- * suspense riser) that always settles on the planned segment.
+ * (see overdrive.ts); this scene replays it as a television event: a
+ * cinematic takeover dive, a rigged wheel spin with real-feeling physics
+ * (momentum, near-stop struggles, slow-mo anticipation, honest near-misses),
+ * and a legendary reveal. Eruption turns hell into its own act.
  */
 interface OdScene {
   angle: number;
@@ -187,7 +197,7 @@ interface OdScene {
   lastSeg: number; // last segment under the pointer (for ticks)
   bounce: number; // pointer bounce 0..1, decays
   urgency: number; // 0..1 as the wheel slows (pointer zoom + tick pitch)
-  phase: 'spin' | 'reveal' | 'hell';
+  phase: 'takeover' | 'spin' | 'reveal' | 'hell' | 'hellreveal';
   revealK: number; // 0..1 spotlight settle
   heat: number; // visual heat 0..1
   // hell-mode inner wheel
@@ -196,9 +206,20 @@ interface OdScene {
   hellIdx: number; // planned prize index in HELL_X
   hellLast: number;
   hellK: number; // 0..1 inner wheel emergence
+  // ---- cinema state (visual/audio only, never touches math)
+  takeoverK: number; // 0..1 camera dive into the forge
+  wheelScale: number; // takeover zoom 0.55..1
+  slowmo: number; // current wheel time-scale (anticipation / near-miss)
+  anticSeg: number; // -1 = none; pulsing segment (anticipation/near-miss)
+  anticT: number; // pulse strength 0..1
+  nearMissK: number; // near-miss sting flash 0..1
+  eruptionK: number; // hell eruption 0..1
+  streakHeat: number; // progression 0..1 — the forge remembers
+  frozen: boolean; // screenshot mode: skip all scene updates
 }
 
 const OD_STORAGE_KEY = 'starforge-od-v1';
+const OD_STREAK_KEY = 'starforge-od-streak-v1';
 
 export class Game {
   private canvas: HTMLCanvasElement;
@@ -233,6 +254,26 @@ export class Game {
   readonly od = new OdTracker();
   private odScene: OdScene | null = null;
   private odMilestone = 0; // charge milestones crossed (0..4 of 25/50/75/100)
+  /** Forge streak: consecutive overdrives this machine has seen. The forge
+   *  remembers — each one burns hotter (visual/audio intensity only). */
+  private odStreak = 0;
+
+  private odStreakHeat(): number {
+    return Math.min(1, this.odStreak / 6);
+  }
+
+  private loadOdStreak(): void {
+    try {
+      const v = localStorage.getItem(OD_STREAK_KEY);
+      if (v !== null) this.odStreak = Math.max(0, parseInt(v, 10) || 0);
+    } catch { /* ignore */ }
+  }
+
+  private saveOdStreak(): void {
+    try {
+      localStorage.setItem(OD_STREAK_KEY, String(this.odStreak));
+    } catch { /* ignore */ }
+  }
 
   constructor(canvas: HTMLCanvasElement, cb: GameCallbacks, locale: Locale) {
     this.canvas = canvas;
@@ -260,6 +301,7 @@ export class Game {
       this.od.load(localStorage.getItem(OD_STORAGE_KEY));
       this.odMilestone = Math.floor(this.od.charge / 25);
     } catch { /* ignore */ }
+    this.loadOdStreak();
 
     canvas.addEventListener('pointerdown', () => this.onPointerDown());
   }
@@ -330,8 +372,12 @@ export class Game {
     if (this.nova) this.updateNova(this.nova, dt);
     if (this.odScene) {
       const os = this.odScene;
-      if (os.bounce > 0) os.bounce = Math.max(0, os.bounce - dt * 5);
-      os.heat = Math.min(1, os.heat + dt * 0.5);
+      if (!os.frozen) {
+        if (os.bounce > 0) os.bounce = Math.max(0, os.bounce - dt * 5);
+        os.heat = Math.min(1, os.heat + dt * 0.5);
+        if (os.anticT > 0) os.anticT = Math.max(0, os.anticT - dt * 0.9);
+        if (os.nearMissK > 0) os.nearMissK = Math.max(0, os.nearMissK - dt * 1.4);
+      }
     }
   }
 
@@ -495,56 +541,112 @@ export class Game {
     };
   }
 
-  /** Render the overdrive wheel scene (spin + hell inner wheel). */
+  /** Render the overdrive cinematic: takeover dive, wheel, hell eruption, reveal. */
   private drawOdScene(os: OdScene): void {
     const { ctx } = this;
     const cx = 640;
     const cy = 400;
     const R = 265;
     const pointerA = -Math.PI / 2;
+    void pointerA;
+    const streakHeat = os.streakHeat;
+    const hellish = os.phase === 'hell' || os.phase === 'hellreveal' ? os.eruptionK : 0;
 
-    // dim the forge behind the wheel
-    ctx.save();
-    ctx.fillStyle = 'rgba(4,2,1,0.72)';
-    ctx.fillRect(0, 0, 1280, 800);
-    ctx.restore();
+    // takeover backdrop: the slot world falls away
+    const vignette = os.phase === 'takeover' ? os.takeoverK : 1;
+    drawOdBackdrop(ctx, {
+      cx, cy, R,
+      t: this.t,
+      vignette,
+      hellK: hellish,
+      streakHeat,
+      reducedMotion: this.reducedMotion,
+    });
 
-    if (os.phase === 'hell') {
-      const k = this.reducedMotion ? 1 : Math.min(1, os.hellK);
-      const hr = 150 * (0.6 + 0.4 * k);
-      // outer ring shows the landed HELL segment ghosted behind
-      drawOdWheel(ctx, cx, cy, R, os.angle, this.t, this.odLabels(), os.segIdx, os.heat, this.reducedMotion);
+    // hell cracks radiate behind everything once the eruption starts
+    if (os.eruptionK > 0.01 && os.phase !== 'hell' && os.phase !== 'hellreveal') {
+      drawOdCracks(ctx, cx, cy, R + 30, this.t, os.eruptionK, this.reducedMotion);
+    }
+
+    // takeover: the camera dives — the wheel rises through the dark
+    if (os.phase === 'takeover') {
+      const s = os.wheelScale;
       ctx.save();
-      ctx.globalAlpha = k;
-      drawHellWheel(ctx, cx, cy, hr, os.hellAngle, [...HELL_X], this.t, os.hellLast >= 0 ? os.hellLast : -1, this.reducedMotion, this.S.odSegHell);
-      drawOdPointer(ctx, cx, cy, hr, os.bounce, os.urgency, this.reducedMotion);
+      ctx.translate(cx, cy);
+      ctx.scale(s, s);
+      ctx.translate(-cx, -cy);
+      drawOdWheel(ctx, cx, cy, R, os.angle + this.t * 0.25, this.t, this.odLabels(), -1, os.heat, this.reducedMotion, { streakHeat });
+      drawOdEmbers(ctx, cx, cy, R, this.t, os.heat, streakHeat, this.reducedMotion);
       ctx.restore();
+      const sub = this.odStreak >= 2 ? `FORGE HEAT ×${this.odStreak}` : '';
+      drawOdTakeoverTitle(ctx, cx, 168, os.takeoverK, this.S.overdrive, sub, this.reducedMotion);
       return;
     }
 
+    // hell: outer wheel ghosted, inner wheel erupts
+    if (os.phase === 'hell' || os.phase === 'hellreveal') {
+      const k = this.reducedMotion ? 1 : Math.min(1, os.hellK);
+      const hr = 150 * (0.6 + 0.4 * k);
+      ctx.save();
+      ctx.globalAlpha = 0.35;
+      drawOdWheel(ctx, cx, cy, R, os.angle, this.t, this.odLabels(), os.segIdx, os.heat, this.reducedMotion, { streakHeat });
+      ctx.restore();
+      ctx.save();
+      ctx.globalAlpha = k;
+      drawHellWheel(ctx, cx, cy, hr, os.hellAngle, [...HELL_X], this.t, os.phase === 'hellreveal' ? os.hellIdx : (os.hellLast >= 0 ? os.hellLast : -1), this.reducedMotion, this.S.odSegHell);
+      drawOdPointer(ctx, cx, cy, hr, os.bounce, os.urgency, this.reducedMotion);
+      drawOdCracks(ctx, cx, cy, hr + 16, this.t, os.eruptionK, this.reducedMotion);
+      drawOdEmbers(ctx, cx, cy, hr, this.t, 1, streakHeat, this.reducedMotion);
+      ctx.restore();
+      if (os.phase === 'hellreveal') {
+        drawOdRevealBurst(ctx, cx, cy, hr, os.revealK, '#ff7a2a', this.t, this.reducedMotion);
+      }
+      return;
+    }
+
+    // main wheel: spin + reveal
+    drawOdEmbers(ctx, cx, cy, R, this.t, os.heat, streakHeat, this.reducedMotion);
     const highlight = os.phase === 'reveal' ? os.segIdx : -1;
-    drawOdWheel(ctx, cx, cy, R, os.angle, this.t, this.odLabels(), highlight, os.heat, this.reducedMotion);
+    drawOdWheel(ctx, cx, cy, R, os.angle, this.t, this.odLabels(), highlight, os.heat, this.reducedMotion, {
+      anticSeg: os.anticSeg,
+      anticT: os.anticT,
+      streakHeat,
+    });
     drawOdPointer(ctx, cx, cy, R, os.bounce, os.urgency, this.reducedMotion);
 
-    // reveal spotlight text
+    // near-miss sting: red vignette pulse
+    if (os.nearMissK > 0.01 && !this.reducedMotion) {
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.globalAlpha = os.nearMissK * 0.35;
+      const ng = ctx.createRadialGradient(cx, cy, R * 0.6, cx, cy, R * 1.5);
+      ng.addColorStop(0, 'rgba(255,40,20,0)');
+      ng.addColorStop(1, 'rgba(255,40,20,0.8)');
+      ctx.fillStyle = ng;
+      ctx.fillRect(0, 0, 1280, 800);
+      ctx.restore();
+    }
+
+    // reveal: shockwave + legendary growing label
     if (os.phase === 'reveal') {
       const k = this.reducedMotion ? 1 : Math.min(1, os.revealK);
+      const seg = OD_WHEEL_ORDER[os.segIdx]!;
+      const meta = OD_SEG_META[seg];
+      drawOdRevealBurst(ctx, cx, cy, R, k, meta.color, this.t, this.reducedMotion);
       ctx.save();
       ctx.globalAlpha = k;
       ctx.textAlign = 'center';
-      ctx.font = '900 44px system-ui, sans-serif';
-      const seg = OD_WHEEL_ORDER[os.segIdx]!;
-      const meta = OD_SEG_META[seg];
+      const grow = this.reducedMotion ? 1 : 0.55 + 0.45 * easeOutBack(Math.min(1, k * 1.3));
+      ctx.font = `900 ${Math.round(46 * grow)}px system-ui, sans-serif`;
       ctx.fillStyle = meta.color;
       if (!this.reducedMotion) {
         ctx.shadowColor = meta.glow;
-        ctx.shadowBlur = 30;
+        ctx.shadowBlur = 34;
       }
       const label = this.odLabels()[seg];
-      ctx.fillText(label, cx, cy - R - 78);
+      ctx.fillText(label, cx, cy - R - 34);
       ctx.restore();
     }
-    void pointerA;
   }
 
   // ------------------------------------------------------------ nova bonus
@@ -1045,46 +1147,138 @@ export class Game {
     return Math.PI * 2;
   }
 
-  /** Rigged wheel spin: 5 full turns, ease-out settle on the planned segment. */
+  /**
+   * Rigged wheel spin, staged like a television event:
+   *   1. fast launch (momentum)
+   *   2. hard deceleration through the field
+   *   3. near-stop struggle #1 — the wheel fights, pointer trembles
+   *   4. micro-push
+   *   5. near-stop struggle #2
+   *   6. final clunk into the planned segment (easeOutBack overshoot)
+   * Along the way: honest near-misses on big segments the wheel brushes
+   * past (slow-mo + sting), and slow-mo anticipation when the planned
+   * segment itself is big (hell / instant).
+   */
   private odWheelSpin(os: OdScene, pointerA: number): Promise<void> {
     return new Promise(res => {
-      const dur = this.reducedMotion ? 700 : 6200;
+      const hellIdx = OD_WHEEL_ORDER.indexOf('hell');
+      const instantIdx = OD_WHEEL_ORDER.indexOf('instant');
+      const bigSegs = [hellIdx, instantIdx];
+      const dur = this.reducedMotion ? 700 : 8800;
       const t0 = performance.now();
+      let vtime = 0;
+      let lastReal = t0;
+      const nearMissFired = new Set<number>();
+      let anticFired = false;
+      let settleFired = false;
+      os.slowmo = 1;
+      os.anticSeg = -1;
+
+      /** Fraction of the total rotation at progress k (plateaus = struggle). */
+      const frac = (k: number): number => {
+        if (k < 0.32) return 0.60 * easeOutQuad(k / 0.32);
+        if (k < 0.58) return 0.60 + 0.27 * easeOutCubic((k - 0.32) / 0.26);
+        if (k < 0.70) {
+          const t = (k - 0.58) / 0.12;
+          return 0.87 + 0.006 * Math.sin(t * Math.PI * 3); // struggle #1
+        }
+        if (k < 0.80) return 0.87 + 0.055 * easeInOut((k - 0.70) / 0.10);
+        if (k < 0.88) {
+          const t = (k - 0.80) / 0.08;
+          return 0.925 + 0.005 * Math.sin(t * Math.PI * 4); // struggle #2
+        }
+        return 0.925 + 0.075 * easeOutBack((k - 0.88) / 0.12); // clunk
+      };
+      const inStruggle = (k: number): boolean =>
+        (k >= 0.58 && k < 0.70) || (k >= 0.80 && k < 0.88);
+
+      const finish = (): void => {
+        os.angle = os.targetAngle;
+        os.lastSeg = os.segIdx;
+        os.urgency = 1;
+        os.slowmo = 1;
+        if (!settleFired) {
+          settleFired = true;
+          audio.odClunk();
+          if (!this.reducedMotion) this.addShake(9, 450);
+        }
+        res();
+      };
+
       const step = () => {
         if (this.dead) return res();
-        const k = Math.min(1, (performance.now() - t0) / dur);
-        if (this.skipFlag) {
-          os.angle = os.targetAngle;
-          os.lastSeg = os.segIdx;
-          os.urgency = 1;
-          return res();
-        }
-        const e = 1 - Math.pow(1 - k, 4); // easeOutQuart: real deceleration feel
-        os.angle = os.targetAngle * e;
-        os.urgency = Math.min(1, k * 1.4);
+        const now = performance.now();
+        const rdt = now - lastReal;
+        lastReal = now;
+        vtime += rdt * os.slowmo;
+        const k = Math.min(1, vtime / dur);
+        if (this.skipFlag) return finish();
+        os.angle = os.targetAngle * frac(k);
+        os.urgency = Math.min(1, Math.max(0, (k - 0.35) / 0.5));
         const seg = odSegmentAt(os.angle, pointerA);
         if (seg !== os.lastSeg) {
           os.lastSeg = seg;
           os.bounce = 1;
-          audio.odTick(1 - k * 0.7);
+          audio.odTick(0.3 + (1 - k) * 0.65);
+          // honest near-miss: brushing a BIG segment slowly without landing it
+          if (
+            !this.reducedMotion && k > 0.55 && k < 0.96 &&
+            bigSegs.includes(seg) && seg !== os.segIdx && !nearMissFired.has(seg)
+          ) {
+            nearMissFired.add(seg);
+            os.anticSeg = seg;
+            os.anticT = 1;
+            os.nearMissK = 1;
+            audio.odNearMiss();
+            this.addShake(5, 500);
+            os.slowmo = 0.38;
+            setTimeout(() => {
+              if (!this.dead) os.slowmo = 1;
+            }, 950);
+          }
         }
-        if (k >= 1) {
-          os.angle = os.targetAngle;
-          return res();
+        // pointer trembles while the wheel fights the near-stop
+        if (!this.reducedMotion && inStruggle(k)) {
+          os.bounce = Math.max(os.bounce, 0.22 + 0.18 * Math.sin(now / 55));
+          os.urgency = Math.min(1, os.urgency + 0.1);
         }
+        // anticipation: the planned segment is big and it is almost here
+        if (
+          !this.reducedMotion && !anticFired && k > 0.76 &&
+          bigSegs.includes(os.segIdx)
+        ) {
+          anticFired = true;
+          os.anticSeg = os.segIdx;
+          os.anticT = 1;
+          audio.odAnticipation();
+          os.slowmo = 0.55;
+          setTimeout(() => {
+            if (!this.dead) os.slowmo = 1;
+          }, 1400);
+        }
+        if (k >= 1) return finish();
         requestAnimationFrame(step);
       };
       step();
     });
   }
 
-  /** Hell inner-wheel spin: 4 turns, ease-out settle on the planned prize. */
+  /** Hell inner-wheel spin: fast, a single near-stop struggle, then the clunk. */
   private odHellSpin(os: OdScene): Promise<void> {
     const TAU = this.odTau();
     const n = HELL_X.length;
     return new Promise(res => {
-      const dur = this.reducedMotion ? 500 : 3600;
+      const dur = this.reducedMotion ? 500 : 4600;
       const t0 = performance.now();
+      const frac = (k: number): number => {
+        if (k < 0.42) return 0.70 * easeOutQuad(k / 0.42);
+        if (k < 0.74) return 0.70 + 0.22 * easeOutCubic((k - 0.42) / 0.32);
+        if (k < 0.86) {
+          const t = (k - 0.74) / 0.12;
+          return 0.92 + 0.006 * Math.sin(t * Math.PI * 3); // struggle
+        }
+        return 0.92 + 0.08 * easeOutBack((k - 0.86) / 0.14);
+      };
       const step = () => {
         if (this.dead) return res();
         const k = Math.min(1, (performance.now() - t0) / dur);
@@ -1093,18 +1287,21 @@ export class Game {
           os.hellLast = os.hellIdx;
           return res();
         }
-        const e = 1 - Math.pow(1 - k, 4);
-        os.hellAngle = os.hellTarget * e;
-        if (!this.reducedMotion) os.hellK = Math.min(1, os.hellK + 0.04);
+        os.hellAngle = os.hellTarget * frac(k);
         const rel = (((-Math.PI / 2 - os.hellAngle) % TAU) + TAU) % TAU;
         const seg = Math.floor((rel / TAU) * n) % n;
         if (seg !== os.hellLast) {
           os.hellLast = seg;
           os.bounce = 1;
-          audio.odTick(1 - k * 0.6);
+          audio.odTick(0.3 + (1 - k) * 0.6);
+        }
+        if (!this.reducedMotion && k >= 0.74 && k < 0.86) {
+          os.bounce = Math.max(os.bounce, 0.22 + 0.18 * Math.sin(performance.now() / 55));
         }
         if (k >= 1) {
           os.hellAngle = os.hellTarget;
+          audio.odClunk();
+          if (!this.reducedMotion) this.addShake(10, 500);
           return res();
         }
         requestAnimationFrame(step);
@@ -1186,7 +1383,7 @@ export class Game {
     return total;
   }
 
-  /** HELL MODE: the inner wheel erupts and spins for the big prize. */
+  /** HELL MODE: the forge cracks open — an eruption, then the inner wheel. */
   private async odHell(plan: OdPlan, bet: number): Promise<number> {
     const os = this.odScene;
     if (!os) return plan.hellPrizeX;
@@ -1195,22 +1392,41 @@ export class Game {
     const hellIdx = (HELL_X as readonly number[]).indexOf(plan.hellPrizeX);
     os.phase = 'hell';
     os.hellIdx = hellIdx;
+    os.eruptionK = 0;
+    os.hellK = this.reducedMotion ? 1 : 0;
     const jitter = (this.rng.nextByte() / 256 - 0.5) * 0.3;
     const segCenter = ((hellIdx + 0.5) / n) * TAU;
     const base = (((-Math.PI / 2 - segCenter + jitter) % TAU) + TAU) % TAU;
     os.hellTarget = base + TAU * 4;
-    os.hellK = this.reducedMotion ? 1 : 0;
+    // eruption beat: lava cracks split the forge, palette shifts to inferno
+    audio.odEruption();
+    if (!this.reducedMotion) {
+      this.addShake(15, 1600);
+      for (let i = 0; i < 8; i++) spawnEmbers(this.particles, 640 + (Math.random() - 0.5) * 700, 420, 24);
+    }
+    await this.tween(this.reducedMotion ? 200 : 1500, k => {
+      os.eruptionK = easeOutCubic(k);
+      if (!this.reducedMotion) os.hellK = Math.min(1, k * 1.2);
+    });
+    os.eruptionK = 1;
+    os.hellK = 1;
     audio.odIgnite();
-    if (!this.reducedMotion) this.addShake(9, 600);
     await this.odHellSpin(os);
     audio.odRiser(this.reducedMotion ? 200 : 1100);
     await this.wait(this.reducedMotion ? 150 : 1200);
-    audio.odWin('hell');
+    // hell reveal: the prize detonates
+    os.phase = 'hellreveal';
+    os.revealK = 0;
+    audio.odFanfare('hell', os.streakHeat);
     this.flash = 1;
     if (!this.reducedMotion) {
-      this.addShake(12, 700);
-      for (let i = 0; i < 6; i++) spawnEmbers(this.particles, 640 + (Math.random() - 0.5) * 420, 400, 26);
+      this.addShake(13, 800);
+      for (let i = 0; i < 8; i++) spawnEmbers(this.particles, 640 + (Math.random() - 0.5) * 480, 400, 30);
     }
+    await this.tween(this.reducedMotion ? 200 : 1600, k => {
+      os.revealK = k;
+    });
+    os.revealK = 1;
     const awardX = plan.hellPrizeX;
     await this.odFlatAward(this.S.odSegHell, awardX, bet);
     return awardX;
@@ -1238,9 +1454,12 @@ export class Game {
     this.cb.setBusy(true, S.overdrive);
     this.cb.clearBanner();
 
-    audio.odMusicStart();
-    audio.odIgnite();
-    if (!this.reducedMotion) this.addShake(8, 500);
+    // the forge remembers: each overdrive burns hotter than the last
+    this.odStreak += 1;
+    this.saveOdStreak();
+    const streakHeat = this.odStreakHeat();
+
+    audio.odMusicStart(streakHeat);
 
     const pointerA = -Math.PI / 2;
     const segIdx = OD_WHEEL_ORDER.indexOf(plan.segment);
@@ -1253,16 +1472,41 @@ export class Game {
       lastSeg: -1,
       bounce: 0,
       urgency: 0,
-      phase: 'spin',
+      phase: 'takeover',
       revealK: 0,
-      heat: 0,
+      heat: 0.25 + streakHeat * 0.35,
       hellAngle: 0,
       hellTarget: 0,
       hellIdx: -1,
       hellLast: -1,
       hellK: 0,
+      takeoverK: 0,
+      wheelScale: 0.55,
+      slowmo: 1,
+      anticSeg: -1,
+      anticT: 0,
+      nearMissK: 0,
+      eruptionK: 0,
+      streakHeat,
+      frozen: false,
     };
     this.odScene = os;
+
+    // TAKEOVER: the camera dives into the forge — the slot world falls away
+    audio.odIgnite();
+    if (!this.reducedMotion) {
+      this.addShake(8, 1400);
+      for (let i = 0; i < 5; i++) spawnEmbers(this.particles, 640 + (Math.random() - 0.5) * 700, 420, 22);
+    }
+    await this.tween(this.reducedMotion ? 250 : 1700, k => {
+      const e = easeOutCubic(k);
+      os.takeoverK = e;
+      os.wheelScale = 0.55 + 0.45 * e;
+      os.heat = Math.min(1, 0.25 + streakHeat * 0.35 + e * 0.45);
+    });
+    os.takeoverK = 1;
+    os.wheelScale = 1;
+    os.phase = 'spin';
     await this.odWheelSpin(os, pointerA);
 
     // suspense beat before the reveal
@@ -1275,10 +1519,17 @@ export class Game {
     });
     os.revealK = 1;
 
-    // ---- resolve the segment
+    // ---- resolve the segment: the reveal detonates
     let awardX = 0;
     const seg = plan.segment;
-    audio.odWin(seg);
+    audio.odFanfare(seg, streakHeat);
+    this.flash = 1;
+    if (!this.reducedMotion) {
+      const big = seg === 'hell' || seg === 'instant';
+      this.addShake(big ? 13 : 9, big ? 800 : 600);
+      for (let i = 0; i < 7; i++) spawnEmbers(this.particles, 640 + (Math.random() - 0.5) * 480, 400, big ? 30 : 22);
+    }
+    await this.wait(this.reducedMotion ? 150 : 900);
     if (seg === 'rescue') {
       this.cb.winBanner(1, `${S.odRescueSpins} ×${plan.rescueMult}`, '', '');
       await this.wait(this.reducedMotion ? 200 : 1200);
@@ -1345,6 +1596,97 @@ export class Game {
     this.od.state.charge = Math.max(0, Math.min(OD_CHARGE_MAX, pct));
     this.odMilestone = Math.floor(this.od.state.charge / 25);
     this.saveOd();
+  }
+
+  /**
+   * Screenshot hook (?shot=takeover|spin|nearmiss|hell|reveal): freeze a
+   * deterministic cinematic frame of the overdrive on screen. Visual-only,
+   * leaves the scene frozen for headless capture.
+   */
+  async debugShot(shot: string): Promise<void> {
+    for (let i = 0; i < 20 && this.state !== 'idle'; i++) await this.wait(500);
+    if (this.state !== 'idle') return;
+    this.state = 'overdrive';
+    this.cb.setBusy(true, this.S.overdrive);
+    this.cb.clearBanner();
+    const TAU = this.odTau();
+    const pointerA = -Math.PI / 2;
+    const streakHeat = 0.7;
+    const hellIdx = OD_WHEEL_ORDER.indexOf('hell');
+    const instantIdx = OD_WHEEL_ORDER.indexOf('instant');
+    const rescueIdx = OD_WHEEL_ORDER.indexOf('rescue');
+    const os: OdScene = {
+      angle: 0,
+      targetAngle: TAU * 5,
+      segIdx: instantIdx,
+      lastSeg: instantIdx,
+      bounce: 0,
+      urgency: 0.7,
+      phase: 'spin',
+      revealK: 0,
+      heat: 0.85,
+      hellAngle: 0,
+      hellTarget: TAU * 4,
+      hellIdx: (HELL_X as readonly number[]).indexOf(80),
+      hellLast: -1,
+      hellK: 1,
+      takeoverK: 1,
+      wheelScale: 1,
+      slowmo: 1,
+      anticSeg: -1,
+      anticT: 0,
+      nearMissK: 0,
+      eruptionK: 0,
+      streakHeat,
+      frozen: true,
+    };
+    if (shot === 'takeover') {
+      os.phase = 'takeover';
+      os.takeoverK = 0.55;
+      os.wheelScale = 0.78;
+      os.heat = 0.6;
+    } else if (shot === 'spin') {
+      os.angle = 2.35;
+      os.bounce = 0.85;
+      os.heat = 0.9;
+    } else if (shot === 'nearmiss') {
+      // rigged to land RESCUE, frozen as the pointer brushes HELL — it stings
+      os.segIdx = rescueIdx;
+      os.angle = odAngleForSegment(hellIdx, pointerA, 0.12);
+      os.anticSeg = hellIdx;
+      os.anticT = 0.85;
+      os.nearMissK = 0.9;
+      os.slowmo = 0.38;
+      os.urgency = 0.95;
+      os.bounce = 0.7;
+    } else if (shot === 'hell') {
+      os.phase = 'hell';
+      os.eruptionK = 0.85;
+      os.hellAngle = 1.1;
+      os.hellLast = 2;
+      os.heat = 1;
+      os.segIdx = hellIdx;
+      os.angle = odAngleForSegment(hellIdx, pointerA, 0);
+    } else if (shot === 'reveal') {
+      os.phase = 'reveal';
+      os.revealK = 0.62;
+      os.segIdx = instantIdx;
+      os.angle = odAngleForSegment(instantIdx, pointerA, 0);
+      os.heat = 1;
+    } else {
+      this.state = 'idle';
+      this.cb.setBusy(false);
+      return;
+    }
+    this.odScene = os;
+    // clear the frozen scene after a while so the game isn't stuck
+    setTimeout(() => {
+      if (this.odScene === os) {
+        this.odScene = null;
+        this.state = 'idle';
+        this.cb.setBusy(false);
+      }
+    }, 25000);
   }
 
   /**

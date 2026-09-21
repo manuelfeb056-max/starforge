@@ -330,11 +330,18 @@ async function main(): Promise<void> {
     audio.button();
     $('welcome').classList.remove('show');
     driver?.reportSize();
+  });
   (window as unknown as { __starforge: Game }).__starforge = game;
     // demo shortcuts: ?bonus=nova / overdrive / overdrive-cold / overdrive-hot
+    // screenshot frames: ?shot=takeover|spin|nearmiss|hell|reveal
     try {
-      const bonus = new URLSearchParams(location.search).get('bonus');
-      if (bonus === 'nova') {
+      const q = new URLSearchParams(location.search);
+      const bonus = q.get('bonus');
+      const shot = q.get('shot');
+      if (shot && ['takeover', 'spin', 'nearmiss', 'hell', 'reveal'].includes(shot)) {
+        document.getElementById('welcome')?.classList.remove('show');
+        setTimeout(() => { void game.debugShot(shot); }, 600);
+      } else if (bonus === 'nova') {
         setTimeout(() => { void game.demoNova(); }, 600);
       } else if (bonus === 'overdrive') {
         setTimeout(() => { void game.debugOverdrive(); }, 600);
@@ -344,7 +351,6 @@ async function main(): Promise<void> {
         setTimeout(() => { void game.debugOverdrive('hot'); }, 600);
       }
     } catch { /* ignore */ }
-  });
   $('lang-toggle').addEventListener('click', () => {
     audio.button();
     applyLocale(locale === 'es' ? 'en' : 'es');

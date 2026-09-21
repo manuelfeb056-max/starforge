@@ -199,6 +199,17 @@ const t5 = Date.now();
 const rare = await game.debugNovaRare();
 console.log(`rare-core nova resolved: totalX=${rare.toFixed(2)} in ${Date.now() - t5}ms`);
 if (!(rare >= 0)) throw new Error('rare nova total negative');
+(game as unknown as { state: string }).state = 'idle';
+
+// screenshot frames: frozen cinematic scenes resolve without exceptions
+for (const shot of ['takeover', 'spin', 'nearmiss', 'hell', 'reveal']) {
+  await (game as unknown as { debugShot: (s: string) => Promise<void> }).debugShot(shot);
+  const scene = (game as unknown as { odScene: unknown }).odScene;
+  if (!scene) throw new Error(`shot ${shot} produced no scene`);
+  (game as unknown as { odScene: null; state: string }).odScene = null;
+  (game as unknown as { state: string }).state = 'idle';
+  console.log(`shot ${shot} ok`);
+}
 
 // host path: celebrate a synthetic settlement without a grid
 game.hostPresentWin(250, 10);

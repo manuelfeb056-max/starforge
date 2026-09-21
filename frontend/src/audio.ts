@@ -482,19 +482,24 @@ class AudioEngine {
   private odStopped = false;
   private odBar = 0;
 
-  /** Tribal forge score: war drums + anvil clanks, mechanical and relentless. */
-  odMusicStart(): void {
+  /** Tribal forge score: war drums + anvil clanks, mechanical and relentless.
+   * `intensity` 0..1 (forge streak heat) raises the ceiling and adds a
+   * second drum layer. */
+  odMusicStart(intensity = 0): void {
     if (!this.ctx || !this.master) return;
     this.odMusicStop();
     this.odStopped = false;
     this.odBar = 0;
     const bus = this.ctx.createGain();
     bus.gain.value = 0;
-    bus.gain.setTargetAtTime(0.42, this.now(), 0.8);
+    bus.gain.setTargetAtTime(0.42 + intensity * 0.14, this.now(), 0.8);
     bus.connect(this.master);
     this.odBus = bus;
+    this.odIntensity = Math.max(0, Math.min(1, intensity));
     this.odScheduleBar();
   }
+
+  private odIntensity = 0;
 
   private odScheduleBar(): void {
     if (!this.ctx || !this.odBus || this.odStopped) return;
@@ -513,6 +518,12 @@ class AudioEngine {
       const f = 1240 + (this.odBar % 3) * 160;
       this.btone(bus, { freq: f, freqEnd: f * 0.94, type: 'square', peak: 0.045, attack: 0.002, decay: 0.14, delay });
       this.bnoise(bus, { peak: 0.05, decay: 0.09, filterFreq: 5200, filterType: 'bandpass', q: 3, delay });
+    }
+    // streak-heat layer: extra floor tom driving under the pattern
+    if (this.odIntensity > 0.15) {
+      for (const delay of [0.1, 0.5, 0.9, 1.3]) {
+        this.btone(bus, { freq: 48, freqEnd: 30, type: 'sine', peak: 0.10 * this.odIntensity, attack: 0.004, decay: 0.22, delay });
+      }
     }
     // low mechanical grind bed
     this.btone(bus, { freq: 49, freqEnd: 47, type: 'sawtooth', peak: 0.05, attack: 0.7, decay: bar - 0.7 });
@@ -565,6 +576,78 @@ class AudioEngine {
     const beats = Math.max(2, Math.round(dur * 3));
     for (let i = 0; i < beats; i++) {
       this.tone({ freq: 75, freqEnd: 38, type: 'sine', peak: 0.3, attack: 0.004, decay: 0.2, delay: dur * 0.55 + (i / beats) * dur * 0.45 });
+    }
+  }
+
+  /** Near-miss: the wheel brushes a big segment and slips past — it hurts. */
+  odNearMiss(): void {
+    if (!this.ctx || !this.master) return;
+    // downward whine + airy whoosh
+    this.tone({ freq: 1400, freqEnd: 320, type: 'sawtooth', peak: 0.10, attack: 0.25, decay: 0.65 });
+    this.noise({ peak: 0.12, attack: 0.15, decay: 0.6, filterFreq: 2400, filterEnd: 500, filterType: 'bandpass', q: 1.4 });
+    // a hollow drum hit as it slips away
+    this.tone({ freq: 90, freqEnd: 42, type: 'sine', peak: 0.22, attack: 0.005, decay: 0.4, delay: 0.28 });
+  }
+
+  /** Anticipation: heartbeat + rising shimmer as a big segment looms. */
+  odAnticipation(): void {
+    if (!this.ctx || !this.master) return;
+    for (let i = 0; i < 4; i++) {
+      const d = i * 0.32;
+      this.tone({ freq: 68, freqEnd: 40, type: 'sine', peak: 0.30, attack: 0.004, decay: 0.22, delay: d });
+      this.tone({ freq: 68, freqEnd: 40, type: 'sine', peak: 0.20, attack: 0.004, decay: 0.16, delay: d + 0.16 });
+    }
+    this.tone({ freq: 880, freqEnd: 2640, type: 'sine', peak: 0.05, attack: 1.0, decay: 0.5 });
+    this.noise({ peak: 0.07, attack: 0.9, decay: 0.5, filterFreq: 3000, filterEnd: 9000, filterType: 'highpass' });
+  }
+
+  /** Eruption: sub-bass rumble + lava blast when hell opens. */
+  odEruption(): void {
+    if (!this.ctx || !this.master) return;
+    this.tone({ freq: 38, freqEnd: 20, type: 'sine', peak: 0.55, attack: 0.15, decay: 2.2 });
+    this.tone({ freq: 55, freqEnd: 28, type: 'sawtooth', peak: 0.16, attack: 0.2, decay: 1.8 });
+    this.noise({ peak: 0.32, attack: 0.12, decay: 1.6, filterFreq: 250, filterEnd: 9000, filterType: 'lowpass' });
+    for (let i = 0; i < 5; i++) {
+      this.tone({ freq: 60 + i * 7, freqEnd: 32, type: 'sine', peak: 0.20, attack: 0.01, decay: 0.35, delay: 0.15 + i * 0.22 });
+    }
+  }
+
+  /** Final settle: the wheel clunks into its segment. */
+  odClunk(): void {
+    if (!this.ctx || !this.master) return;
+    this.tone({ freq: 130, freqEnd: 55, type: 'sine', peak: 0.4, attack: 0.003, decay: 0.28 });
+    this.tone({ freq: 2100, freqEnd: 1700, type: 'square', peak: 0.05, attack: 0.001, decay: 0.12 });
+    this.noise({ peak: 0.10, decay: 0.08, filterFreq: 4200, filterType: 'bandpass', q: 2 });
+  }
+
+  /**
+   * Legendary reveal fanfare: evolves FROM the tribal drums — a drum fill
+   * rolls into a rising brass-ish triad, bigger with the forge streak.
+   */
+  odFanfare(segment: 'rescue' | 'winmult' | 'second' | 'instant' | 'hell' | 'reheat', streak = 0): void {
+    const dest = this.master;
+    if (!this.ctx || !dest) return;
+    this.odMusicStop();
+    const big = segment === 'hell' || segment === 'instant';
+    // tribal drum fill leading in
+    for (let i = 0; i < 6; i++) {
+      this.btone(dest, { freq: 70 + i * 9, freqEnd: 40, type: 'sine', peak: 0.20, attack: 0.003, decay: 0.14, delay: i * 0.11 });
+    }
+    // rising triad — brighter for big segments
+    const root = big ? 146.83 : 130.81;
+    const run = [1, 1.25, 1.5, 2, 2.5, 3].map(m => root * m);
+    run.forEach((f, i) => {
+      const d = 0.66 + i * 0.12;
+      this.btone(dest, { freq: f, type: 'sawtooth', peak: 0.09 + streak * 0.03, attack: 0.05, decay: 0.9, delay: d });
+      this.btone(dest, { freq: f * 2, type: 'sine', peak: 0.05, attack: 0.05, decay: 0.7, delay: d });
+    });
+    // floor + air
+    this.btone(dest, { freq: 55, freqEnd: 30, type: 'sine', peak: 0.45, attack: 0.01, decay: 1.6, delay: 0.66 });
+    this.bnoise(dest, { peak: 0.14, attack: 0.4, decay: 1.2, filterFreq: 6000, filterType: 'highpass', delay: 0.66 });
+    if (big) {
+      for (const f of [392, 523.25, 659.25, 783.99]) {
+        this.btone(dest, { freq: f, type: 'triangle', peak: 0.10, attack: 0.02, decay: 1.1, delay: 1.5 });
+      }
     }
   }
 
