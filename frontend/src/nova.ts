@@ -13,10 +13,10 @@
  *      collector — IMÁN: absorbs the sum of ALL other visible cores'
  *                  CURRENT values (value cores AND specials) the moment it
  *                  lands. Copies, does not drain.
- *      payer     — AMPLIFICADOR: on landing, pays its value x3 to each of
+ *      payer     — AMPLIFICADOR: on landing, pays its value x2 to each of
  *                  3-5 random other cores, INCLUDING specials. A pumped
  *                  collector is worth double trouble.
- *      sniper    — FRANCOTIRADOR: on landing, doubles up to 3 random other
+ *      sniper    — FRANCOTIRADOR: on landing, doubles up to 2 random other
  *                  cores, INCLUDING specials. Doubling an already-loaded
  *                  collector is the jackpot moment.
  *  - Rare core tiers (x25 / x50 / x100) sit at the top of the value pool at
@@ -25,7 +25,7 @@
  *    collector, then a sniper doubles it, then another collector absorbs the
  *    doubled collector... The spin-level 1000x cap applies at finalization
  *    (engine.ts).
- *  - Temple artifact: all drawn values x1.08.
+ *  - Temple artifact: all drawn values x1.04.
  *  - Second-chance (Overdrive) boost: +2 start respins and a value pool
  *    tilted toward the high tiers.
  *
@@ -185,7 +185,7 @@ export function playNova(rng: ByteRng, temple: boolean, boost = false): NovaResu
           newValue: core.value,
         });
       } else if (core.kind === 'payer') {
-        // pays its value x3 to 3-5 random other cores, specials included
+        // pays its value x2 to 3-5 random other cores, specials included
         const others = cores.filter(c => c !== core);
         const k = 3 + rint(rng, 3); // 3..5
         const targets = pickN(rng, others, k);
