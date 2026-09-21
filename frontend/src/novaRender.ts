@@ -29,6 +29,7 @@ function coreColor(kind: NovaKind, value: number): string {
   if (kind === 'collector') return '#fb4d6d';
   if (kind === 'payer') return '#ffd34d';
   if (kind === 'sniper') return '#ff5a3c';
+  if (value >= 25) return '#ff3df2';
   if (value >= 3) return '#ffb347';
   if (value >= 2) return '#a78bfa';
   return '#22d3ee';

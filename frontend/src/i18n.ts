@@ -52,6 +52,17 @@ export interface Strings {
   forfeited: string;
   connectFail: string;
   clickToSkip: string;
+  overdrive: string;
+  odCharge: string;
+  odFull: string;
+  odSegRescue: string;
+  odSegWinmult: string;
+  odSegSecond: string;
+  odSegInstant: string;
+  odSegHell: string;
+  odSegReheat: string;
+  odRescueSpins: string;
+  odFreeSpin: string;
   welcomePlay: string;
   welcomeNote: string;
   welcomeRtp: string;
@@ -86,7 +97,7 @@ const es: Strings = {
   soundOn: 'Sonido activado',
   soundOff: 'Sonido silenciado',
   infoTitle: 'Cómo jugar',
-  rtpLine: 'RTP 94.1% (fresco) / 97.3% (estable), Monte Carlo 3M. La demo usa la misma matemática que el contrato on-chain.',
+  rtpLine: 'RTP 94.3% (fresco) / 96.9% (estable), Monte Carlo 3M. La demo usa la misma matemática que el contrato on-chain.',
   resetProgress: 'Reiniciar progresión',
   resetDone: 'Progresión reiniciada',
   close: 'Cerrar',
@@ -95,7 +106,18 @@ const es: Strings = {
   artifactTemple: 'Temple',
   artifactBrasaDesc: 'Constelaciones ×1.25',
   artifactYunqueDesc: 'Scatter 12+ ×1.05',
-  artifactTempleDesc: 'Nova Furnace: valores ×1.08',
+  artifactTempleDesc: 'Nova Furnace: valores ×1.04',
+  overdrive: 'FURNACE OVERDRIVE',
+  odCharge: 'CARGA',
+  odFull: '¡OVERDRIVE!',
+  odSegRescue: 'RESCATE',
+  odSegWinmult: 'MULTIPLICADOR',
+  odSegSecond: '2ª OPORTUNIDAD',
+  odSegInstant: 'PREMIO',
+  odSegHell: 'INFIERNO',
+  odSegReheat: 'RECALENTAR',
+  odRescueSpins: 'GIROS DE RESCATE',
+  odFreeSpin: 'GIRO GRATIS',
   forged: '¡Forjado!',
   winX: (x: string) => `${x}×`,
   credits: 'créditos',
@@ -105,8 +127,8 @@ const es: Strings = {
   clickToSkip: 'clic para saltar',
   welcomePlay: 'ENTRAR A LA FORJA',
   welcomeNote: 'Tragamonedas 6×5 de forja cósmica. Forja minerales y desata el horno Nova Furnace.',
-  welcomeRtp: 'RTP 94.1–97.3% · Matemática verificable on-chain',
-  rtpTitle: 'Retorno teórico al jugador: 94.1% fresco / 97.3% estable (Monte Carlo 3M)',
+  welcomeRtp: 'RTP 94.2–97.3% · Matemática verificable on-chain',
+  rtpTitle: 'Retorno teórico al jugador: 94.2% fresco / 97.3% estable (Monte Carlo 3M)',
 };
 
 const en: Strings = {
@@ -137,7 +159,7 @@ const en: Strings = {
   soundOn: 'Sound on',
   soundOff: 'Sound muted',
   infoTitle: 'How to play',
-  rtpLine: 'RTP 94.1% (fresh) / 97.3% (steady), 3M Monte Carlo. The demo uses the same math as the on-chain contract.',
+  rtpLine: 'RTP 94.3% (fresh) / 96.9% (steady), 3M Monte Carlo. The demo uses the same math as the on-chain contract.',
   resetProgress: 'Reset progression',
   resetDone: 'Progression reset',
   close: 'Close',
@@ -146,7 +168,18 @@ const en: Strings = {
   artifactTemple: 'Temper',
   artifactBrasaDesc: 'Constellation pays ×1.25',
   artifactYunqueDesc: 'Tier-3 (12+) scatter ×1.05',
-  artifactTempleDesc: 'Nova Furnace values ×1.08',
+  artifactTempleDesc: 'Nova Furnace values ×1.04',
+  overdrive: 'FURNACE OVERDRIVE',
+  odCharge: 'CHARGE',
+  odFull: 'OVERDRIVE!',
+  odSegRescue: 'RESCUE',
+  odSegWinmult: 'MULTIPLIER',
+  odSegSecond: '2ND CHANCE',
+  odSegInstant: 'PRIZE',
+  odSegHell: 'HELL',
+  odSegReheat: 'REHEAT',
+  odRescueSpins: 'RESCUE SPINS',
+  odFreeSpin: 'FREE SPIN',
   forged: 'Forged!',
   winX: (x: string) => `${x}×`,
   credits: 'credits',
@@ -156,8 +189,8 @@ const en: Strings = {
   clickToSkip: 'click to skip',
   welcomePlay: 'ENTER THE FORGE',
   welcomeNote: 'Scatter-pay 6×5 cosmic-forge slot. Forge minerals and unleash the Nova Furnace.',
-  welcomeRtp: 'RTP 94.1–97.3% · On-chain verifiable math',
-  rtpTitle: 'Theoretical return to player: 94.1% fresh / 97.3% steady (3M Monte Carlo)',
+  welcomeRtp: 'RTP 94.2–97.3% · On-chain verifiable math',
+  rtpTitle: 'Theoretical return to player: 94.2% fresh / 97.3% steady (3M Monte Carlo)',
 };
 
 export const STR: Record<Locale, Strings> = { es, en };

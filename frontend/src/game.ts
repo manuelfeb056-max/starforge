@@ -63,6 +63,25 @@ import {
 import { audio } from './audio';
 import { Crucible, type ArtifactKey } from './crucible';
 import { STR, type Locale } from './i18n';
+import {
+  HELL_X,
+  OD_CHARGE_MAX,
+  OdTracker,
+  planOverdrive,
+  type OdHeat,
+  type OdPlan,
+  type OdSegment,
+} from './overdrive';
+import {
+  OD_SEG_META,
+  OD_WHEEL_ORDER,
+  drawHellWheel,
+  drawOdPointer,
+  drawOdWheel,
+  odAngleForSegment,
+  odSegmentAt,
+  type OdWheelLabels,
+} from './overdriveRender';
 
 export const BETS = [1, 2, 5, 10, 25, 50, 100];
 const PITCH = 116; // cell + gap
@@ -70,7 +89,7 @@ const CELL = 104;
 export const GRID_X = 298;
 export const GRID_Y = 116;
 
-export type GameState = 'idle' | 'busy' | 'nova' | 'hostwait';
+export type GameState = 'idle' | 'busy' | 'nova' | 'overdrive' | 'hostwait';
 export type Mode = 'demo' | 'host';
 
 export interface WinEntry {
@@ -144,6 +163,7 @@ interface NovaScene {
   popups: FxPopup[];
   streaks: FxStreak[];
   respinsLeft: number;
+  maxRespins: number;
   heat: number; // molten intensity 0..1 (eased)
   heatTarget: number;
   shimmerT: number; // anticipation shimmer on empty cells
@@ -153,6 +173,32 @@ interface NovaScene {
   finaleTotal: number;
   tickAcc: number;
 }
+
+/**
+ * Live state of the FURNACE OVERDRIVE wheel. The math arrives as an OdPlan
+ * (see overdrive.ts); this scene replays it cinematically: a rigged wheel
+ * spin with real-feeling physics (ease-out deceleration, segment ticks,
+ * suspense riser) that always settles on the planned segment.
+ */
+interface OdScene {
+  angle: number;
+  targetAngle: number;
+  segIdx: number; // planned segment index in OD_WHEEL_ORDER
+  lastSeg: number; // last segment under the pointer (for ticks)
+  bounce: number; // pointer bounce 0..1, decays
+  urgency: number; // 0..1 as the wheel slows (pointer zoom + tick pitch)
+  phase: 'spin' | 'reveal' | 'hell';
+  revealK: number; // 0..1 spotlight settle
+  heat: number; // visual heat 0..1
+  // hell-mode inner wheel
+  hellAngle: number;
+  hellTarget: number;
+  hellIdx: number; // planned prize index in HELL_X
+  hellLast: number;
+  hellK: number; // 0..1 inner wheel emergence
+}
+
+const OD_STORAGE_KEY = 'starforge-od-v1';
 
 export class Game {
   private canvas: HTMLCanvasElement;
@@ -183,6 +229,10 @@ export class Game {
   private raysT = -1; // >=0 while big-win rays show
   /** Live NOVA FURNACE bonus scene (null outside the bonus). */
   private nova: NovaScene | null = null;
+  /** FURNACE OVERDRIVE charge + live wheel scene. Persists across screens. */
+  readonly od = new OdTracker();
+  private odScene: OdScene | null = null;
+  private odMilestone = 0; // charge milestones crossed (0..4 of 25/50/75/100)
 
   constructor(canvas: HTMLCanvasElement, cb: GameCallbacks, locale: Locale) {
     this.canvas = canvas;
@@ -205,7 +255,26 @@ export class Game {
     this.cells = g.map(sym => ({ sym, dy: 0, alpha: 0.5, scale: 1, glow: 0, shimmer: false }));
     this.gridOn = true;
 
+    // overdrive charge persists across screens and sessions
+    try {
+      this.od.load(localStorage.getItem(OD_STORAGE_KEY));
+      this.odMilestone = Math.floor(this.od.charge / 25);
+    } catch { /* ignore */ }
+
     canvas.addEventListener('pointerdown', () => this.onPointerDown());
+  }
+
+  /** Persist the overdrive charge (session continuity). */
+  saveOd(): void {
+    try {
+      localStorage.setItem(OD_STORAGE_KEY, this.od.serialize());
+    } catch { /* ignore */ }
+  }
+
+  resetOd(): void {
+    this.od.reset();
+    this.odMilestone = 0;
+    this.saveOd();
   }
 
   get S(): (typeof STR)[Locale] {
@@ -259,6 +328,11 @@ export class Game {
       if (this.raysT > 3.2) this.raysT = -1;
     }
     if (this.nova) this.updateNova(this.nova, dt);
+    if (this.odScene) {
+      const os = this.odScene;
+      if (os.bounce > 0) os.bounce = Math.max(0, os.bounce - dt * 5);
+      os.heat = Math.min(1, os.heat + dt * 0.5);
+    }
   }
 
   private render(): void {
@@ -298,6 +372,179 @@ export class Game {
 
     // NOVA FURNACE overlay (no shake on the base scene)
     if (this.nova) this.drawNova(this.nova);
+
+    // OVERDRIVE charge bar: always visible except inside bonus cinematics
+    if (!this.nova && !this.odScene) this.drawOdBar();
+
+    // FURNACE OVERDRIVE wheel overlay
+    if (this.odScene) this.drawOdScene(this.odScene);
+  }
+
+  /**
+   * The forge charge bar: every paid spin heats it; losses heat it fastest.
+   * Pulses near full, bursts embers at 25/50/75 milestones.
+   */
+  private drawOdBar(): void {
+    const { ctx } = this;
+    const S = this.S;
+    const x = 36;
+    const y = 652;
+    const w = 224;
+    const h = 44;
+    const charge = Math.min(1, this.od.charge / OD_CHARGE_MAX);
+    const hot = charge >= 0.8 && !this.reducedMotion;
+    const pulse = hot ? 1 + 0.035 * Math.sin(this.t * 9) : 1;
+
+    ctx.save();
+    ctx.translate(x + w / 2, y + h / 2);
+    ctx.scale(pulse, pulse);
+    ctx.translate(-(x + w / 2), -(y + h / 2));
+
+    // housing
+    ctx.fillStyle = 'rgba(8,5,3,0.82)';
+    ctx.strokeStyle = '#3a2a16';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.roundRect(x, y, w, h, 10);
+    ctx.fill();
+    ctx.stroke();
+
+    // label (single centered line at 100% to avoid collision)
+    ctx.textBaseline = 'alphabetic';
+    ctx.font = '800 13px system-ui, sans-serif';
+    if (charge >= 1) {
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#ffffff';
+      ctx.fillText(S.odFull, x + w / 2, y + 19);
+    } else {
+      ctx.textAlign = 'left';
+      ctx.fillStyle = '#ffb347';
+      ctx.fillText(S.overdrive, x + 12, y + 19);
+      ctx.textAlign = 'right';
+      ctx.fillStyle = '#c9a86a';
+      ctx.fillText(`${Math.floor(charge * 100)}%`, x + w - 12, y + 19);
+    }
+
+    // track
+    const tx = x + 12;
+    const ty = y + 25;
+    const tw = w - 24;
+    const th = 10;
+    ctx.fillStyle = '#120b06';
+    ctx.beginPath();
+    ctx.roundRect(tx, ty, tw, th, 5);
+    ctx.fill();
+
+    // molten fill
+    if (charge > 0.005) {
+      const fw = Math.max(8, tw * charge);
+      const fg = ctx.createLinearGradient(tx, 0, tx + tw, 0);
+      fg.addColorStop(0, '#7a2400');
+      fg.addColorStop(0.5, '#ff7b1c');
+      fg.addColorStop(0.85, '#ffd34d');
+      fg.addColorStop(1, '#fff6d8');
+      ctx.save();
+      if (!this.reducedMotion && charge > 0.25) {
+        ctx.shadowColor = `rgba(255,${110 + Math.round(charge * 90)},30,${0.35 + charge * 0.5})`;
+        ctx.shadowBlur = 8 + charge * 22;
+      }
+      ctx.fillStyle = fg;
+      ctx.beginPath();
+      ctx.roundRect(tx, ty, fw, th, 5);
+      ctx.fill();
+      ctx.restore();
+      // licking flame tips on the fill edge
+      if (!this.reducedMotion && charge > 0.1 && charge < 1) {
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
+        for (let i = 0; i < 3; i++) {
+          const fx = tx + fw - 4 + (i - 1) * 7;
+          const fh = 6 + 4 * Math.sin(this.t * 13 + i * 2.4) + charge * 5;
+          const fl = ctx.createLinearGradient(0, ty, 0, ty - fh);
+          fl.addColorStop(0, 'rgba(255,180,60,0.85)');
+          fl.addColorStop(1, 'rgba(255,120,20,0)');
+          ctx.fillStyle = fl;
+          ctx.beginPath();
+          ctx.moveTo(fx - 3.5, ty + 2);
+          ctx.quadraticCurveTo(fx, ty - fh, fx + 3.5, ty + 2);
+          ctx.closePath();
+          ctx.fill();
+        }
+        ctx.restore();
+      }
+    }
+
+    // milestone ticks 25/50/75
+    ctx.fillStyle = 'rgba(255,220,160,0.5)';
+    for (const m of [0.25, 0.5, 0.75]) {
+      ctx.fillRect(tx + tw * m - 1, ty - 2, 2, th + 4);
+    }
+    ctx.restore();
+  }
+
+  private odLabels(): OdWheelLabels {
+    const S = this.S;
+    return {
+      rescue: S.odSegRescue,
+      winmult: S.odSegWinmult,
+      second: S.odSegSecond,
+      instant: S.odSegInstant,
+      hell: S.odSegHell,
+      reheat: S.odSegReheat,
+      title: S.overdrive,
+    };
+  }
+
+  /** Render the overdrive wheel scene (spin + hell inner wheel). */
+  private drawOdScene(os: OdScene): void {
+    const { ctx } = this;
+    const cx = 640;
+    const cy = 400;
+    const R = 265;
+    const pointerA = -Math.PI / 2;
+
+    // dim the forge behind the wheel
+    ctx.save();
+    ctx.fillStyle = 'rgba(4,2,1,0.72)';
+    ctx.fillRect(0, 0, 1280, 800);
+    ctx.restore();
+
+    if (os.phase === 'hell') {
+      const k = this.reducedMotion ? 1 : Math.min(1, os.hellK);
+      const hr = 150 * (0.6 + 0.4 * k);
+      // outer ring shows the landed HELL segment ghosted behind
+      drawOdWheel(ctx, cx, cy, R, os.angle, this.t, this.odLabels(), os.segIdx, os.heat, this.reducedMotion);
+      ctx.save();
+      ctx.globalAlpha = k;
+      drawHellWheel(ctx, cx, cy, hr, os.hellAngle, [...HELL_X], this.t, os.hellLast >= 0 ? os.hellLast : -1, this.reducedMotion, this.S.odSegHell);
+      drawOdPointer(ctx, cx, cy, hr, os.bounce, os.urgency, this.reducedMotion);
+      ctx.restore();
+      return;
+    }
+
+    const highlight = os.phase === 'reveal' ? os.segIdx : -1;
+    drawOdWheel(ctx, cx, cy, R, os.angle, this.t, this.odLabels(), highlight, os.heat, this.reducedMotion);
+    drawOdPointer(ctx, cx, cy, R, os.bounce, os.urgency, this.reducedMotion);
+
+    // reveal spotlight text
+    if (os.phase === 'reveal') {
+      const k = this.reducedMotion ? 1 : Math.min(1, os.revealK);
+      ctx.save();
+      ctx.globalAlpha = k;
+      ctx.textAlign = 'center';
+      ctx.font = '900 44px system-ui, sans-serif';
+      const seg = OD_WHEEL_ORDER[os.segIdx]!;
+      const meta = OD_SEG_META[seg];
+      ctx.fillStyle = meta.color;
+      if (!this.reducedMotion) {
+        ctx.shadowColor = meta.glow;
+        ctx.shadowBlur = 30;
+      }
+      const label = this.odLabels()[seg];
+      ctx.fillText(label, cx, cy - R - 78);
+      ctx.restore();
+    }
+    void pointerA;
   }
 
   // ------------------------------------------------------------ nova bonus
@@ -388,7 +635,7 @@ export class Game {
     for (const p of nv.popups) drawFxPopup(ctx, p);
     if (nv.phase === 'play' || nv.phase === 'entry') {
       drawNovaTitle(ctx, nv.titleK, this.reducedMotion);
-      if (nv.titleK > 0.9) drawNovaRespins(ctx, this.t, nv.respinsLeft, NOVA_START_RESPINS, this.reducedMotion);
+      if (nv.titleK > 0.9) drawNovaRespins(ctx, this.t, nv.respinsLeft, nv.maxRespins, this.reducedMotion);
     }
     if (nv.phase === 'finale') {
       drawRays(ctx, LW / 2, 380, this.t, 'rgba(255,179,71,0.5)', Math.min(1, nv.finaleK), this.reducedMotion);
@@ -645,7 +892,8 @@ export class Game {
       rings: [],
       popups: [],
       streaks: [],
-      respinsLeft: NOVA_START_RESPINS,
+      respinsLeft: res.startRespins,
+      maxRespins: res.startRespins,
       heat: 0,
       heatTarget: 0,
       shimmerT: 0,
@@ -769,12 +1017,15 @@ export class Game {
     this.cb.clearBanner();
     const bet = this.bet;
     const temple = (this.artifacts & ART.TEMPLE) !== 0;
-    // pre-roll the bonus off-screen; play the first showcase-worthy result
+    // pre-roll the bonus off-screen; play the first showcase-worthy result:
+    // a rare (x25+) core, a chained special, or a >=6x total — the new
+    // ceiling must be visible on first impression. Still real RNG.
     let total = 0;
-    for (let attempt = 0; attempt < 30; attempt++) {
+    for (let attempt = 0; attempt < 40; attempt++) {
       const r = playNova(cryptoRng(), temple);
+      const rare = r.events.some(e => e.t === 'land' && e.kind === 'value' && e.value >= 25);
       const special = r.events.some(e => e.t === 'collectFire' || e.t === 'payerFire' || e.t === 'sniperFire');
-      if (r.totalX >= 4 || special || attempt === 29) {
+      if (r.totalX >= 6 || rare || special || attempt === 39) {
         total = await this.playNovaResult(r);
         break;
       }
@@ -789,8 +1040,341 @@ export class Game {
     this.cb.setBusy(false);
   }
 
-  private drawGrid(): void {
-    const { ctx } = this;
+  // ------------------------------------------------------- FURNACE OVERDRIVE
+  private odTau(): number {
+    return Math.PI * 2;
+  }
+
+  /** Rigged wheel spin: 5 full turns, ease-out settle on the planned segment. */
+  private odWheelSpin(os: OdScene, pointerA: number): Promise<void> {
+    return new Promise(res => {
+      const dur = this.reducedMotion ? 700 : 6200;
+      const t0 = performance.now();
+      const step = () => {
+        if (this.dead) return res();
+        const k = Math.min(1, (performance.now() - t0) / dur);
+        if (this.skipFlag) {
+          os.angle = os.targetAngle;
+          os.lastSeg = os.segIdx;
+          os.urgency = 1;
+          return res();
+        }
+        const e = 1 - Math.pow(1 - k, 4); // easeOutQuart: real deceleration feel
+        os.angle = os.targetAngle * e;
+        os.urgency = Math.min(1, k * 1.4);
+        const seg = odSegmentAt(os.angle, pointerA);
+        if (seg !== os.lastSeg) {
+          os.lastSeg = seg;
+          os.bounce = 1;
+          audio.odTick(1 - k * 0.7);
+        }
+        if (k >= 1) {
+          os.angle = os.targetAngle;
+          return res();
+        }
+        requestAnimationFrame(step);
+      };
+      step();
+    });
+  }
+
+  /** Hell inner-wheel spin: 4 turns, ease-out settle on the planned prize. */
+  private odHellSpin(os: OdScene): Promise<void> {
+    const TAU = this.odTau();
+    const n = HELL_X.length;
+    return new Promise(res => {
+      const dur = this.reducedMotion ? 500 : 3600;
+      const t0 = performance.now();
+      const step = () => {
+        if (this.dead) return res();
+        const k = Math.min(1, (performance.now() - t0) / dur);
+        if (this.skipFlag) {
+          os.hellAngle = os.hellTarget;
+          os.hellLast = os.hellIdx;
+          return res();
+        }
+        const e = 1 - Math.pow(1 - k, 4);
+        os.hellAngle = os.hellTarget * e;
+        if (!this.reducedMotion) os.hellK = Math.min(1, os.hellK + 0.04);
+        const rel = (((-Math.PI / 2 - os.hellAngle) % TAU) + TAU) % TAU;
+        const seg = Math.floor((rel / TAU) * n) % n;
+        if (seg !== os.hellLast) {
+          os.hellLast = seg;
+          os.bounce = 1;
+          audio.odTick(1 - k * 0.6);
+        }
+        if (k >= 1) {
+          os.hellAngle = os.hellTarget;
+          return res();
+        }
+        requestAnimationFrame(step);
+      };
+      step();
+    });
+  }
+
+  /** Flat xbet award with a forge banner (winmult / instant / hell). */
+  private async odFlatAward(title: string, awardX: number, bet: number): Promise<void> {
+    if (awardX <= 0) {
+      this.cb.toast('—');
+      await this.wait(this.reducedMotion ? 100 : 700);
+      return;
+    }
+    const tier: 0 | 1 | 2 = awardX >= 50 ? 2 : awardX >= 10 ? 1 : 0;
+    this.cb.winBanner(tier, title, `+${fmtInt(awardX * bet)}`, `×${fmtX(awardX)}`);
+    audio.win(tier);
+    if (!this.reducedMotion) {
+      this.addShake(tier === 2 ? 10 : 4, tier === 2 ? 600 : 280);
+      for (let i = 0; i < 3; i++) {
+        spawnEmbers(this.particles, 640 + (Math.random() - 0.5) * 420, 400, tier === 2 ? 30 : 20);
+      }
+      if (tier === 2) this.raysT = 0;
+    }
+    await this.wait(this.reducedMotion ? 150 : tier === 2 ? 2200 : 1500);
+    this.cb.clearBanner();
+  }
+
+  /** One free spin at face value (reheat segment). */
+  private async odFreeSpin(bet: number, mult: number, label: string): Promise<number> {
+    const spin = runSpin(this.rng, this.artifacts);
+    await this.animateGrid(spin);
+    let novaWinX = 0;
+    if (spin.nova) novaWinX = await this.presentNova((this.artifacts & ART.TEMPLE) !== 0);
+    const fin = finalizeSpin(spin, novaWinX);
+    const award = fin.totalWinX * mult;
+    if (award > 0) {
+      this.cb.winBanner(1, label, `+${fmtInt(award * bet)}`, mult > 1 ? `×${fmtX(award)}` : '');
+      audio.win(award >= 10 ? 1 : 0);
+      await this.wait(this.reducedMotion ? 150 : 1300);
+      this.cb.clearBanner();
+    } else {
+      audio.lose();
+      await this.wait(this.reducedMotion ? 100 : 500);
+    }
+    return award;
+  }
+
+  /** RESCUE SPINS: free spins whose wins pay xmult. Never charges the bar. */
+  private async odRescueSpins(plan: OdPlan, bet: number): Promise<number> {
+    const S = this.S;
+    let total = 0;
+    for (let i = 0; i < plan.rescueN; i++) {
+      if (this.dead) break;
+      this.cb.payBadge(`${S.odRescueSpins} ${i + 1}/${plan.rescueN} · ×${plan.rescueMult}`);
+      const spin = runSpin(this.rng, this.artifacts);
+      await this.animateGrid(spin);
+      let novaWinX = 0;
+      if (spin.nova) novaWinX = await this.presentNova((this.artifacts & ART.TEMPLE) !== 0);
+      const fin = finalizeSpin(spin, novaWinX);
+      const award = fin.totalWinX * plan.rescueMult;
+      total += award;
+      if (award > 0) {
+        const tier: 0 | 1 | 2 = award >= 10 ? 1 : 0;
+        this.cb.winBanner(tier, `×${fmtX(award)}`, `+${fmtInt(award * bet)}`, `${S.odRescueSpins} ×${plan.rescueMult}`);
+        audio.win(tier);
+        if (!this.reducedMotion) {
+          this.addShake(4, 260);
+          spawnEmbers(this.particles, 640 + (Math.random() - 0.5) * 300, 400, 22);
+        }
+        await this.wait(this.reducedMotion ? 150 : 1100);
+        this.cb.clearBanner();
+      } else {
+        audio.lose();
+        await this.wait(this.reducedMotion ? 100 : 500);
+      }
+    }
+    return total;
+  }
+
+  /** HELL MODE: the inner wheel erupts and spins for the big prize. */
+  private async odHell(plan: OdPlan, bet: number): Promise<number> {
+    const os = this.odScene;
+    if (!os) return plan.hellPrizeX;
+    const TAU = this.odTau();
+    const n = HELL_X.length;
+    const hellIdx = (HELL_X as readonly number[]).indexOf(plan.hellPrizeX);
+    os.phase = 'hell';
+    os.hellIdx = hellIdx;
+    const jitter = (this.rng.nextByte() / 256 - 0.5) * 0.3;
+    const segCenter = ((hellIdx + 0.5) / n) * TAU;
+    const base = (((-Math.PI / 2 - segCenter + jitter) % TAU) + TAU) % TAU;
+    os.hellTarget = base + TAU * 4;
+    os.hellK = this.reducedMotion ? 1 : 0;
+    audio.odIgnite();
+    if (!this.reducedMotion) this.addShake(9, 600);
+    await this.odHellSpin(os);
+    audio.odRiser(this.reducedMotion ? 200 : 1100);
+    await this.wait(this.reducedMotion ? 150 : 1200);
+    audio.odWin('hell');
+    this.flash = 1;
+    if (!this.reducedMotion) {
+      this.addShake(12, 700);
+      for (let i = 0; i < 6; i++) spawnEmbers(this.particles, 640 + (Math.random() - 0.5) * 420, 400, 26);
+    }
+    const awardX = plan.hellPrizeX;
+    await this.odFlatAward(this.S.odSegHell, awardX, bet);
+    return awardX;
+  }
+
+  /**
+   * FURNACE OVERDRIVE: the bar is full — the forge wheel ignites and the
+   * planned segment resolves cinematically. Returns the award in xbet.
+   * `rigged` forces a segment (debug / screenshots only).
+   */
+  async presentOverdrive(rigged?: OdSegment): Promise<number> {
+    const TAU = this.odTau();
+    const heat: OdHeat = this.od.heat();
+    let plan: OdPlan = planOverdrive(this.rng, heat, this.od.state.lastWins);
+    if (rigged) {
+      for (let i = 0; i < 400 && plan.segment !== rigged; i++) {
+        plan = planOverdrive(this.rng, heat, this.od.state.lastWins);
+      }
+    }
+    const bet = this.bet;
+    const temple = (this.artifacts & ART.TEMPLE) !== 0;
+    const S = this.S;
+    this.state = 'overdrive';
+    this.skipFlag = false;
+    this.cb.setBusy(true, S.overdrive);
+    this.cb.clearBanner();
+
+    audio.odMusicStart();
+    audio.odIgnite();
+    if (!this.reducedMotion) this.addShake(8, 500);
+
+    const pointerA = -Math.PI / 2;
+    const segIdx = OD_WHEEL_ORDER.indexOf(plan.segment);
+    const jitter = (this.rng.nextByte() / 256 - 0.5) * 0.45;
+    const base = ((odAngleForSegment(segIdx, pointerA, jitter) % TAU) + TAU) % TAU;
+    const os: OdScene = {
+      angle: 0,
+      targetAngle: base + TAU * 5,
+      segIdx,
+      lastSeg: -1,
+      bounce: 0,
+      urgency: 0,
+      phase: 'spin',
+      revealK: 0,
+      heat: 0,
+      hellAngle: 0,
+      hellTarget: 0,
+      hellIdx: -1,
+      hellLast: -1,
+      hellK: 0,
+    };
+    this.odScene = os;
+    await this.odWheelSpin(os, pointerA);
+
+    // suspense beat before the reveal
+    os.phase = 'reveal';
+    audio.odRiser(this.reducedMotion ? 300 : 1400);
+    if (!this.reducedMotion) this.addShake(4, 900);
+    await this.tween(this.reducedMotion ? 200 : 1500, k => {
+      os.revealK = k;
+      os.urgency = 1 - k * 0.4;
+    });
+    os.revealK = 1;
+
+    // ---- resolve the segment
+    let awardX = 0;
+    const seg = plan.segment;
+    audio.odWin(seg);
+    if (seg === 'rescue') {
+      this.cb.winBanner(1, `${S.odRescueSpins} ×${plan.rescueMult}`, '', '');
+      await this.wait(this.reducedMotion ? 200 : 1200);
+      this.cb.clearBanner();
+      awardX = await this.odRescueSpins(plan, bet);
+    } else if (seg === 'winmult') {
+      awardX = plan.winMult * plan.winBase;
+      await this.odFlatAward(`${S.odSegWinmult} ×${plan.winMult}`, awardX, bet);
+    } else if (seg === 'second') {
+      this.cb.winBanner(2, S.odSegSecond, '', '');
+      await this.wait(this.reducedMotion ? 200 : 1100);
+      this.cb.clearBanner();
+      this.odScene = null; // the furnace takes the stage
+      awardX = await this.playNovaResult(playNova(this.rng, temple, true));
+      this.state = 'overdrive';
+    } else if (seg === 'instant') {
+      awardX = plan.instantX;
+      await this.odFlatAward(S.odSegInstant, awardX, bet);
+    } else if (seg === 'hell') {
+      awardX = await this.odHell(plan, bet);
+    } else {
+      // reheat: bar back to 50% + 1 free spin
+      this.od.discharge(true);
+      this.odMilestone = 2;
+      this.saveOd();
+      awardX = await this.odFreeSpin(bet, 1, S.odSegReheat);
+    }
+    if (seg !== 'reheat') {
+      this.od.discharge(false);
+      this.odMilestone = 0;
+      this.saveOd();
+    }
+
+    this.odScene = null;
+    this.balance += awardX * bet;
+    this.refreshBalanceText();
+    this.cb.pushHistory({ bet, winX: awardX, win: awardX * bet, nova: false });
+    this.state = 'busy';
+    this.cb.setBusy(false);
+    return awardX;
+  }
+
+  /**
+   * Demo shortcut: jump straight into FURNACE OVERDRIVE (?bonus=overdrive).
+   * Fills the bar to 100% and fires the wheel. `heat` presets the recent
+   * history for cold/hot adaptive-weight testing (?bonus=overdrive-cold/hot).
+   */
+  async debugOverdrive(heat?: OdHeat, segment?: OdSegment): Promise<number> {
+    for (let i = 0; i < 20 && this.state !== 'idle'; i++) await this.wait(500);
+    if (this.state !== 'idle') return 0;
+    if (heat === 'cold') this.od.state.recent = new Array(20).fill(-1);
+    else if (heat === 'hot') this.od.state.recent = new Array(20).fill(0.4);
+    this.od.state.charge = OD_CHARGE_MAX;
+    this.odMilestone = 4;
+    this.saveOd();
+    this.state = 'busy';
+    const award = await this.presentOverdrive(segment);
+    this.state = 'idle';
+    return award;
+  }
+
+  /** Test hook: set the charge bar to a percentage (screenshots). */
+  debugSetCharge(pct: number): void {
+    this.od.state.charge = Math.max(0, Math.min(OD_CHARGE_MAX, pct));
+    this.odMilestone = Math.floor(this.od.state.charge / 25);
+    this.saveOd();
+  }
+
+  /**
+   * Debug/test hook: play a furnace guaranteed to show a rare (x25+) core
+   * or a chained special. Exposed for automated visual verification.
+   */
+  async debugNovaRare(): Promise<number> {
+    for (let i = 0; i < 7 && this.state !== 'idle'; i++) await this.wait(500);
+    if (this.state !== 'idle') return 0;
+    this.state = 'busy';
+    this.cb.setBusy(true, this.S.forging);
+    this.cb.clearBanner();
+    let res = playNova(this.rng, false);
+    for (let attempt = 0; attempt < 600; attempt++) {
+      const rare = res.events.some(e => e.t === 'land' && e.kind === 'value' && e.value >= 25);
+      const chained = res.events.some(
+        e => e.t === 'collectFire' || (e.t === 'sniperFire' && e.targets.length >= 2),
+      );
+      if (rare || res.totalX >= 25 || (chained && res.totalX >= 10)) break;
+      res = playNova(this.rng, false);
+    }
+    const total = await this.playNovaResult(res);
+    this.balance += total * this.bet;
+    this.cb.setBalance(this.balanceText());
+    this.state = 'idle';
+    this.cb.setBusy(false, '');
+    return total;
+  }
+
+  private drawGrid(): void {    const { ctx } = this;
     const at = this.reducedMotion ? 0 : this.t; // freeze idle motion when reduced
     for (let i = 0; i < CELLS; i++) {
       const c = this.cells[i]!;
@@ -874,8 +1458,8 @@ export class Game {
   private onPointerDown(): void {
     audio.unlock();
     audio.startAmbient();
-    // during the bonus a tap skips the current beat
-    if (this.state === 'nova') {
+    // during a bonus a tap skips the current beat
+    if (this.state === 'nova' || this.state === 'overdrive') {
       this.skip();
       return;
     }
@@ -921,6 +1505,19 @@ export class Game {
 
     const fin: FinalizedSpin = finalizeSpin(spin, novaWinX);
     await this.presentWin(fin, bet);
+
+    // overdrive charge: every paid spin heats the forge (losses fastest)
+    const prevMilestone = this.odMilestone;
+    const odFull = this.od.addSpin(this.rng, fin.totalWinX, spin.nova);
+    this.odMilestone = Math.floor(this.od.charge / 25);
+    this.saveOd();
+    if (this.odMilestone > prevMilestone && !this.reducedMotion) {
+      audio.odChargeK(this.odMilestone / 4);
+      spawnEmbers(this.particles, 148, 470, 10 + this.odMilestone * 6);
+    }
+    if (odFull) {
+      await this.presentOverdrive();
+    }
 
     // crucible progression
     const forged = this.crucible.addEssence(fin.totalWinX);

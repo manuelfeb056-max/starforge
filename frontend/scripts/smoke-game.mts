@@ -155,14 +155,50 @@ const totalX = await g2.presentNova(false);
 console.log(`forced nova (fresh) resolved: totalX=${totalX.toFixed(2)} in ${Date.now() - t1}ms`);
 if (!(totalX >= 0)) throw new Error('nova total negative');
 
-// temple variant: values must be x1.08
+// temple variant: values must be x1.04
 const tt = await g2.presentNova(true);
 console.log(`forced nova (temple) resolved: totalX=${tt.toFixed(2)}`);
 if (!(tt >= 0)) throw new Error('temple nova total negative');
+// presentNova leaves state='busy' by contract (callers manage it); reset for the hooks below
+(game as unknown as { state: string }).state = 'idle';
 
 // demo shortcut path
 await game.demoNova();
 console.log('demoNova shortcut ok');
+
+// overdrive: charge bar persists, then force wheels (cold + hot heat)
+// charge bar picked up spins already; force-check persistence
+game.debugSetCharge(80);
+const odState = game.od.serialize();
+if (!odState.includes('"charge":80')) throw new Error('charge not set');
+console.log('overdrive charge set+persist ok');
+
+const t2 = Date.now();
+const odCold = await game.debugOverdrive('cold');
+console.log(`forced overdrive (cold) resolved: award=${odCold.toFixed(2)}xbet in ${Date.now() - t2}ms`);
+if (!(odCold >= 0)) throw new Error('overdrive cold award negative');
+
+const t3 = Date.now();
+const odHot = await game.debugOverdrive('hot');
+console.log(`forced overdrive (hot) resolved: award=${odHot.toFixed(2)}xbet in ${Date.now() - t3}ms`);
+if (!(odHot >= 0)) throw new Error('overdrive hot award negative');
+
+// rigged segments: hell (inner wheel), rescue (free spins), second (boosted nova)
+for (const seg of ['hell', 'rescue', 'second'] as const) {
+  const t4 = Date.now();
+  const aw = await game.debugOverdrive(undefined, seg);
+  console.log(`forced overdrive (rigged ${seg}) resolved: award=${aw.toFixed(2)}xbet in ${Date.now() - t4}ms`);
+  if (!(aw >= 0)) throw new Error(`overdrive ${seg} award negative`);
+}
+
+// bar discharged after each wheel
+if (game.od.charge >= 60) throw new Error('charge not discharged after wheel');
+
+// rare-core nova (x25+ or chained special) renders without exceptions
+const t5 = Date.now();
+const rare = await game.debugNovaRare();
+console.log(`rare-core nova resolved: totalX=${rare.toFixed(2)} in ${Date.now() - t5}ms`);
+if (!(rare >= 0)) throw new Error('rare nova total negative');
 
 // host path: celebrate a synthetic settlement without a grid
 game.hostPresentWin(250, 10);

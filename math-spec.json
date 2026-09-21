@@ -162,13 +162,25 @@
   "subJackpotVarianceScaled": 0
  },
  "rtp": {
-  "fresh_3M": 0.94081,
-  "steady_3M": 0.97338,
-  "declared_band": [
+  "fresh_3M": 0.9424,
+  "steady_3M": 0.9726,
+  "se": 0.0012,
+  "band": [
    0.9394,
    0.9759
   ],
-  "artifact_spread": 0.0326
+  "components_fresh": {
+   "base": 0.8221,
+   "nova": 0.0746,
+   "overdrive": 0.0457
+  },
+  "components_steady": {
+   "base": 0.8494,
+   "nova": 0.0772,
+   "overdrive": 0.046
+  },
+  "simulator": "frontend/scripts/montecarlo.mts",
+  "date": "2026-09-21"
  },
  "scatterPay": {
   "note": "Final tuned paytable (integer bps in contract). Verified by Monte Carlo; see docs/RTP_MATH.md.",
@@ -240,53 +252,190 @@
   },
   "note": "No wild symbol in the final design."
  },
- "version": "2.0.0-mathspec-nova",
+ "version": "3.0.0-overdrive",
  "nova": {
   "name": "NOVA FURNACE",
   "trigger": "3+ star symbols anywhere on the initial drop (stars in cascade refills do not retrigger)",
   "trigger_freq_measured": {
-   "three_plus": 0.03759,
-   "four_plus": 0.00615,
-   "sample": "200k initial drops"
+   "three_plus": 0.0369,
+   "sample": "3M initial drops (full-model sim)"
   },
   "grid": "5x4 = 20 cells; every nova spin lands cores on empty cells",
   "respin_mechanic": {
    "start_respins": 3,
    "reset": "every new core resets respins to 3",
-   "land_chance_per_empty_cell": 0.05
+   "land_chance_per_empty_cell": 0.026,
+   "boosted_start_respins": 5,
+   "boosted_rule": "Overdrive 2nd Chance: +2 respins and specials recharged on landing"
   },
   "core_types": {
    "weights": {
-    "value": 96,
-    "collector": 1.5,
-    "payer": 1.25,
-    "sniper": 1.25
+    "value": 97.2,
+    "collector": 0.93,
+    "payer": 0.93,
+    "sniper": 0.94
    },
    "value_pool_xbet": [
-    0.15,
-    0.32,
-    0.65
+    0.08,
+    0.2,
+    0.5,
+    1.2,
+    3,
+    8,
+    25,
+    50,
+    100
    ],
    "value_pool_weights": [
-    70,
-    23,
-    7
-   ]
+    52,
+    25,
+    13,
+    6,
+    2.6,
+    1.1,
+    0.22,
+    0.06,
+    0.02
+   ],
+   "boost_value_pool_weights": [
+    46,
+    24,
+    15,
+    8,
+    4,
+    2,
+    0.7,
+    0.2,
+    0.1
+   ],
+   "value_granularity": "16-bit roll mapped onto cumulative weights (x50/x100 reachable)"
   },
   "specials": {
-   "collector": "on landing, fires beams to every existing core and absorbs their values (copies, does not drain)",
-   "payer": "on landing, emits a shockwave that adds its value to every existing core",
-   "sniper": "on landing, lasers 1-3 random existing cores and doubles each targeted value"
+   "collector": "on landing, fires beams to every existing core and absorbs their CURRENT values (copies, does not drain); can absorb specials",
+   "payer": "value x2; shockwave pays its value across 3-5 cores (may target specials)",
+   "sniper": "doubles up to 2 cores (may double specials)",
+   "resolution_order": "collector -> payer -> sniper, permitting explosive chains"
   },
-  "temple_note": "Temple x1.08 applied to each landed core value (value cores and specials' own values)",
-  "source": "frontend/src/nova.ts",
-  "measured_rtp_3M": {
-   "fresh": 0.94081,
-   "steady_all_artifacts": 0.97338,
-   "nova_contribution": 0.0913,
-   "nova_trigger_freq": 0.03691,
-   "mean_nova_award_xbet": 2.47,
-   "max_nova_award_xbet": 48.49
+  "temple_artifact": "core values x1.04",
+  "mean_award_xbet": {
+   "fresh": 2.02,
+   "steady": 2.1,
+   "standalone_1M": 2.034
+  },
+  "tail_1M": {
+   ">=50x": 0.003687,
+   ">=100x": 0.000957,
+   ">=250x": 3.2e-05,
+   ">=500x": 9e-06,
+   "max_observed": 901.4
+  },
+  "theoretical_max": "unbounded raw (collector chains); payable capped at 1000x bet",
+  "rare_core_render": "value >= 25 renders hot-magenta (#ff3df2)"
+ },
+ "overdrive": {
+  "name": "FURNACE OVERDRIVE",
+  "charge": {
+   "max": 100,
+   "loss": "uniform 1.6-2.4",
+   "win": "uniform 0.4-0.8",
+   "nova_trigger": 3,
+   "win_ge_10x": 0.15,
+   "win_ge_25x": 0.05,
+   "cycle_spins_measured": "~90",
+   "persistence": "localStorage starforge-od-v1; reheat returns bar to 50%",
+   "milestones": [
+    25,
+    50,
+    75,
+    100
+   ]
+  },
+  "wheel": {
+   "segments": [
+    "rescue",
+    "winmult",
+    "second",
+    "instant",
+    "hell",
+    "reheat"
+   ],
+   "weights_cold": {
+    "rescue": 28,
+    "winmult": 12,
+    "second": 10,
+    "instant": 24,
+    "hell": 2,
+    "reheat": 24
+   },
+   "weights_hot": {
+    "rescue": 12,
+    "winmult": 28,
+    "second": 20,
+    "instant": 14,
+    "hell": 8,
+    "reheat": 18
+   },
+   "heat_rule": "mean of last 20 spin nets < 0 -> cold, else hot",
+   "spin": "rigged: 5 full turns, easeOutQuart settle on the planned segment"
+  },
+  "segments": {
+   "rescue": {
+    "spins": "3-8 (weights 14/12/9/6/4/3)",
+    "mult": "x2-x5 (weights 80/15/4/1)",
+    "measured_avg": "4.53x",
+    "rate": "23.6%"
+   },
+   "winmult": {
+    "mult": "x2-x10 (weights 40/28/16/9/5/3/2/1/1)",
+    "base": "mean of last 2 paid spins (xbet, can be 0)",
+    "measured_avg": "5.14x",
+    "rate": "16.6%"
+   },
+   "second": {
+    "effect": "boosted nova furnace (+2 respins, specials recharged)",
+    "measured_avg": "5.40x",
+    "rate": "12.7%"
+   },
+   "instant": {
+    "range": "x5-x50 (weights 45/28/15/8/4)",
+    "measured_avg": "4.01x",
+    "rate": "21.3%"
+   },
+   "hell": {
+    "inner_wheel_xbet": [
+     6,
+     10,
+     20,
+     40,
+     80
+    ],
+    "inner_weights": [
+     45,
+     30,
+     15,
+     7,
+     3
+    ],
+    "inner_ev": 13.9,
+    "measured_avg": "13.34x",
+    "rate": "3.6%"
+   },
+   "reheat": {
+    "effect": "charge back to 50% + 1 free spin at face value",
+    "measured_avg": "0.93x",
+    "rate": "22.2%"
+   }
+  },
+  "theoretical_maxima": {
+   "hell": "80x",
+   "instant": "50x",
+   "winmult": "10x recent",
+   "rescue": "1000x (cap)",
+   "second": "1000x (cap)"
+  },
+  "rtp_contrib_3M": {
+   "fresh": 0.0457,
+   "steady": 0.046
   }
  }
 }

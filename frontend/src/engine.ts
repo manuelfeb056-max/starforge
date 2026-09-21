@@ -35,6 +35,12 @@ export const ART = { BRASA: 1, YUNQUE: 2, TEMPLE: 4 } as const;
 export const MAX_PAYOUT_X = 1000;
 /** Cascade cap is ALWAYS 2 (Temple no longer raises it). */
 export const CASCADE_CAP = 2;
+/**
+ * v3 demo rebalance: global scale on base-game pays (scatter + patterns)
+ * that keeps total RTP inside the declared band once NOVA FURNACE (v3) and
+ * FURNACE OVERDRIVE are included. The legacy on-chain contract is untouched.
+ */
+export const BASE_PAY_SCALE = 0.967;
 
 /** Base symbol weights. Order: Cu,Fe,Ni,Ag,Au,Pt,Nt,Star. */
 const WEIGHTS = [30, 26, 22, 16, 12, 8, 5, 3] as const;
@@ -178,7 +184,7 @@ export function evaluateStep(grid: number[], artifacts: number): StepResult {
     if (count >= 8) {
       const tier = tierOf(count);
       const base = (PAYTABLE[m] as number[])[tier] as number;
-      const payX = tier === 2 && yunque ? base * 1.05 : base;
+      const payX = (tier === 2 && yunque ? base * 1.05 : base) * BASE_PAY_SCALE;
       wins.push({ mineral: m, count, tier, payX });
       winningMinerals.add(m);
     }
@@ -207,7 +213,7 @@ export function evaluateStep(grid: number[], artifacts: number): StepResult {
       }
     }
     if (ok && mineral !== -1) {
-      pattern = { name: p.name, payX: p.payX * (brasa ? 1.25 : 1), cells: [...p.cells] };
+      pattern = { name: p.name, payX: p.payX * (brasa ? 1.25 : 1) * BASE_PAY_SCALE, cells: [...p.cells] };
       break;
     }
   }

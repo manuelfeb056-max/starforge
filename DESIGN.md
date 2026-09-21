@@ -26,7 +26,8 @@
 
 **Crucible (left panel):** vertical vessel with liquid metal (animated sine-wave surface, orange gradient, glow). Fill = essence progress to next artifact. On forge: hammer-strike flash + screen shake + artifact icon ignites.
 
-**NOVA FURNACE overlay:** dimensional rift entry (radial zoom + collapse, no fade), a 5×4 iron forge chamber; star cores slam in with bounce + shockwave, molten aura, plasma arcs; Collector fires individual beams to every core, Sniper takes aim with crosshair + laser, Payer detonates an expanding shockwave; finale = total count-up + big-win shockwaves.
+**NOVA FURNACE overlay:** dimensional rift entry (radial zoom + collapse, no fade), a 5×4 iron forge chamber; star cores slam in with bounce + shockwave, molten aura, plasma arcs; Collector fires individual beams to every core, Sniper takes aim with crosshair + laser, Payer detonates an expanding shockwave; finale = total count-up + big-win shockwaves. Rare (x25+) cores burn hot-magenta.
+**FURNACE OVERDRIVE overlay:** persistent charge bar in the HUD (losses heat it fastest; pulses at 80%+, ember bursts at 25/50/75). At 100% the forge wheel ignites: 6-segment casino wheel (iron rim, rivets, heat shimmer, skull-tipped pointer with bounce) with real physics — 5 full turns, ease-out deceleration, per-segment tick sounds that slow with the wheel, suspense riser + zoom before the reveal. Hell mode opens an inner prize wheel (x6–x80) with eruption on land. Rescue/Second-Chance play real free spins and boosted furnaces on the base grid. Tribal/mechanical drum loop + anvil clanks while the wheel lives.
 
 ## 2. Layout (1280×800 logical, responsive scale)
 
@@ -42,7 +43,7 @@
 - Symbol drop: staggered fall with slight bounce (easeOutBack), 40ms stagger per cell, column by column.
 - Win: paying symbols pulse 2× then dissolve into upward ember particles; payline count badge pops.
 - Cascade: remaining symbols slide down with gravity ease; new ones drop from top.
-- Artifact events: Yunque → anvil slam on tier-3 (12+) scatter wins (screen shake 6px, 150ms, deep thunk); Brasa → boosted constellation burns brighter (extra ember burst + ignite whoosh); Temple → nova core values ×1.08.
+- Artifact events: Yunque → anvil slam on tier-3 (12+) scatter wins (screen shake 6px, 150ms, deep thunk); Brasa → boosted constellation burns brighter (extra ember burst + ignite whoosh); Temple → nova core values ×1.04.
 - Nova Furnace trigger: 3+ stars → dimensional rift → the furnace chamber.
 - Anticipation: when 3 stars land, 4th+ reel positions shimmer.
 - All animations must be skippable (click) and respect `prefers-reduced-motion`.
@@ -79,7 +80,7 @@ Create `src/audio.ts` with a tiny synth: master gain + mute. Sounds (all oscilla
 
 ## 6. Info panel ("i")
 
-Overlay explaining in ES/EN (locale from snapshot or browser): how scatter pays work, paytable table (all 7 minerals × 3 tiers), constellation patterns with mini diagrams, nova furnace rules (3+ stars, respins, collector/payer/sniper), artifacts, **RTP 97.3% steady / 94.1% fresh (3M Monte Carlo)**, "demo uses the same math as the on-chain contract", provably-fair note.
+Overlay explaining in ES/EN (locale from snapshot or browser): how scatter pays work, paytable table (all 7 minerals × 3 tiers), constellation patterns with mini diagrams, nova furnace rules (3+ stars, respins, collector/payer/sniper), artifacts, **RTP 97.3% steady / 94.2% fresh (3M Monte Carlo)**, "demo uses the same math as the on-chain contract", provably-fair note.
 
 ## 7. Required integrations
 

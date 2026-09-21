@@ -69,7 +69,7 @@ function infoHTML(): string {
   const artRows = [
     ['brasa', 25, L === 'es' ? 'Constelaciones pagan ×1.25' : 'Constellation pays ×1.25'],
     ['yunque', 75, L === 'es' ? 'Scatter 12+ ×1.05' : 'Tier-3 (12+) scatter ×1.05'],
-    ['temple', 150, L === 'es' ? 'Nova Furnace: valores ×1.08' : 'Nova Furnace values ×1.08'],
+    ['temple', 150, L === 'es' ? 'Nova Furnace: valores ×1.04' : 'Nova Furnace values ×1.04'],
   ]
     .map(([k, th, d]) => `<li><b style="color:var(--ember)">${k}</b> — ${d} <span class="muted">(${th} ${L === 'es' ? 'esencia' : 'essence'})</span></li>`)
     .join('');
@@ -83,7 +83,9 @@ function infoHTML(): string {
       <p>Tras cada evaluación scatter se comprueban estas formaciones fijas. Si las 5 celdas tienen el <b>mismo mineral</b> (la estrella lo invalida), paga el bono. Solo la constelación de mayor valor paga por paso.</p>
       <div class="patterns-grid">${patCards}</div>
       <h3>NOVA FURNACE</h3>
-      <p><b>3+ estrellas en la caída inicial</b> abren el horno Nova Furnace: una parrilla 5×4 vacía con <b>3 respins</b>. Cada núcleo de energía que cae reinicia los respins. El <b>Imán</b> absorbe todos los valores visibles con rayos, el <b>Amplificador</b> reparte su valor ×3 entre 3–5 núcleos con una onda expansiva, y el <b>Francotirador</b> duplica 3 núcleos con disparos láser. Con Temple forjado, los valores suben <b>×1.08</b>.</p>
+      <p><b>3+ estrellas en la caída inicial</b> abren el horno Nova Furnace: una parrilla 5×4 vacía con <b>3 respins</b>. Cada núcleo de energía que cae reinicia los respins. El <b>Imán</b> absorbe todos los valores visibles con rayos, el <b>Amplificador</b> reparte su valor ×3 entre 3–5 núcleos con una onda expansiva, y el <b>Francotirador</b> duplica 3 núcleos con disparos láser. Con Temple forjado, los valores suben <b>×1.04</b>.</p>
+      <h3>FURNACE OVERDRIVE</h3>
+      <p>Cada giro pago <b>carga el horno</b> (las derrotas cargan más rápido). Al llegar al <b>100%</b> se enciende la rueda Overdrive de 6 segmentos: <b>Rescate</b> (3–8 giros gratis con multiplicador ×2–×5), <b>Multiplicador</b> (×2–×10 sobre tus últimas ganancias), <b>2ª Oportunidad</b> (Nova Furnace potenciado: +2 respins y especiales recargados), <b>Premio</b> (×5–×50 instantáneo), <b>Infierno</b> (rueda interior ×6–×80) y <b>Recalentar</b> (giro gratis y la carga vuelve al 50%). La rueda se <b>adapta</b>: en racha fría favorece Rescate y Premio; en racha caliente, Multiplicador e Infierno.</p>
       <h3>ARTEFACTOS DEL CRISOL</h3>
       <p>Cada giro suma su victoria total (en ×apuesta) como esencia. Al cruzar un umbral forjas un artefacto <b>permanente</b> de la sesión:</p>
       <ul>${artRows}</ul>
@@ -99,7 +101,9 @@ function infoHTML(): string {
       <p>After each scatter evaluation these fixed formations are checked. If all 5 cells hold the <b>same mineral</b> (a star voids it), the bonus pays. Only the highest-value constellation pays per step.</p>
       <div class="patterns-grid">${patCards}</div>
       <h3>NOVA FURNACE</h3>
-      <p><b>3+ stars on the initial drop</b> open the Nova Furnace: an empty 5×4 forge with <b>3 respins</b>. Every energy core that lands resets respins. The <b>Collector</b> absorbs all visible values with lightning, the <b>Amplifier</b> pays its value ×3 across 3–5 cores in a shockwave, and the <b>Sniper</b> doubles 3 cores with laser shots. With Temper forged, values rise <b>×1.08</b>.</p>
+      <p><b>3+ stars on the initial drop</b> open the Nova Furnace: an empty 5×4 forge with <b>3 respins</b>. Every energy core that lands resets respins. The <b>Collector</b> absorbs all visible values with lightning, the <b>Amplifier</b> pays its value ×3 across 3–5 cores in a shockwave, and the <b>Sniper</b> doubles 3 cores with laser shots. With Temper forged, values rise <b>×1.04</b>.</p>
+      <h3>FURNACE OVERDRIVE</h3>
+      <p>Every paid spin <b>charges the furnace</b> (losses charge it fastest). At <b>100%</b> the 6-segment Overdrive wheel ignites: <b>Rescue</b> (3–8 free spins with a ×2–×5 multiplier), <b>Multiplier</b> (×2–×10 on your recent wins), <b>2nd Chance</b> (boosted Nova Furnace: +2 respins and recharged specials), <b>Prize</b> (×5–×50 instant), <b>Hell</b> (inner wheel ×6–×80) and <b>Reheat</b> (free spin, charge back to 50%). The wheel is <b>adaptive</b>: cold streaks favor Rescue and Prize; hot streaks favor Multiplier and Hell.</p>
       <h3>CRUCIBLE ARTIFACTS</h3>
       <p>Every spin adds its total win (in ×bet) as essence. Crossing a threshold forges a <b>permanent</b> session artifact:</p>
       <ul>${artRows}</ul>
@@ -154,6 +158,7 @@ async function main(): Promise<void> {
       btn.textContent = b ? label ?? S().forging : S().forge;
       updateForgeButton();
       driver?.reportSize();
+  (window as unknown as { __starforge: Game }).__starforge = game;
     },
     setBalance(text) {
       $('balance-val').textContent = text;
@@ -172,6 +177,7 @@ async function main(): Promise<void> {
         ul.appendChild(li);
       }
       driver?.reportSize();
+  (window as unknown as { __starforge: Game }).__starforge = game;
     },
     forgeIgnite(keys) {
       for (const k of keys) {
@@ -196,6 +202,7 @@ async function main(): Promise<void> {
       $('banner-amount').textContent = amountText;
       $('banner-sub').textContent = sub;
       driver?.reportSize();
+  (window as unknown as { __starforge: Game }).__starforge = game;
     },
     clearBanner() {
       $('banner').className = '';
@@ -300,11 +307,13 @@ async function main(): Promise<void> {
     $('info-body').innerHTML = infoHTML();
     $('info-modal').classList.add('show');
     driver?.reportSize();
+  (window as unknown as { __starforge: Game }).__starforge = game;
   });
   $('info-close').addEventListener('click', () => {
     audio.button();
     $('info-modal').classList.remove('show');
     driver?.reportSize();
+  (window as unknown as { __starforge: Game }).__starforge = game;
   });
   $('info-modal').addEventListener('click', e => {
     if (e.target === $('info-modal')) $('info-modal').classList.remove('show');
@@ -321,10 +330,18 @@ async function main(): Promise<void> {
     audio.button();
     $('welcome').classList.remove('show');
     driver?.reportSize();
-    // demo shortcut: ?bonus=nova jumps straight into the bonus cinematic
+  (window as unknown as { __starforge: Game }).__starforge = game;
+    // demo shortcuts: ?bonus=nova / overdrive / overdrive-cold / overdrive-hot
     try {
-      if (new URLSearchParams(location.search).get('bonus') === 'nova') {
+      const bonus = new URLSearchParams(location.search).get('bonus');
+      if (bonus === 'nova') {
         setTimeout(() => { void game.demoNova(); }, 600);
+      } else if (bonus === 'overdrive') {
+        setTimeout(() => { void game.debugOverdrive(); }, 600);
+      } else if (bonus === 'overdrive-cold') {
+        setTimeout(() => { void game.debugOverdrive('cold'); }, 600);
+      } else if (bonus === 'overdrive-hot') {
+        setTimeout(() => { void game.debugOverdrive('hot'); }, 600);
       }
     } catch { /* ignore */ }
   });
@@ -379,6 +396,7 @@ async function main(): Promise<void> {
     },
     reportSize() {
       driver?.reportSize();
+  (window as unknown as { __starforge: Game }).__starforge = game;
     },
   };
 

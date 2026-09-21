@@ -475,6 +475,137 @@ class AudioEngine {
     this.ambientNodes.push(lfo);
     g.connect(this.master);
   }
+
+  // ------------------------------------------------------- FURNACE OVERDRIVE
+  private odBus: GainNode | null = null;
+  private odTimer: ReturnType<typeof setTimeout> | null = null;
+  private odStopped = false;
+  private odBar = 0;
+
+  /** Tribal forge score: war drums + anvil clanks, mechanical and relentless. */
+  odMusicStart(): void {
+    if (!this.ctx || !this.master) return;
+    this.odMusicStop();
+    this.odStopped = false;
+    this.odBar = 0;
+    const bus = this.ctx.createGain();
+    bus.gain.value = 0;
+    bus.gain.setTargetAtTime(0.42, this.now(), 0.8);
+    bus.connect(this.master);
+    this.odBus = bus;
+    this.odScheduleBar();
+  }
+
+  private odScheduleBar(): void {
+    if (!this.ctx || !this.odBus || this.odStopped) return;
+    const bus = this.odBus;
+    const bar = 1.6;
+    // war-drum pattern: deep toms, driving with a syncopated hit
+    const drumHits: Array<[number, number]> = [
+      [0, 58], [0.4, 73], [0.8, 58], [1.0, 65], [1.2, 58], [1.45, 82],
+    ];
+    for (const [delay, f] of drumHits) {
+      this.btone(bus, { freq: f, freqEnd: f * 0.55, type: 'sine', peak: 0.34, attack: 0.004, decay: 0.28, delay });
+      this.bnoise(bus, { peak: 0.06, decay: 0.08, filterFreq: 900, filterType: 'lowpass', delay });
+    }
+    // anvil clanks on the off-beats: metallic, mechanical
+    for (const delay of [0.2, 0.6, 1.1, 1.5]) {
+      const f = 1240 + (this.odBar % 3) * 160;
+      this.btone(bus, { freq: f, freqEnd: f * 0.94, type: 'square', peak: 0.045, attack: 0.002, decay: 0.14, delay });
+      this.bnoise(bus, { peak: 0.05, decay: 0.09, filterFreq: 5200, filterType: 'bandpass', q: 3, delay });
+    }
+    // low mechanical grind bed
+    this.btone(bus, { freq: 49, freqEnd: 47, type: 'sawtooth', peak: 0.05, attack: 0.7, decay: bar - 0.7 });
+    this.btone(bus, { freq: 98.5, freqEnd: 96, type: 'sawtooth', peak: 0.03, attack: 0.7, decay: bar - 0.7 });
+    this.odBar++;
+    this.odTimer = setTimeout(() => this.odScheduleBar(), bar * 1000);
+  }
+
+  /** Hard stop the overdrive score. */
+  odMusicStop(): void {
+    this.odStopped = true;
+    if (this.odTimer) {
+      clearTimeout(this.odTimer);
+      this.odTimer = null;
+    }
+    if (this.odBus && this.ctx) {
+      const bus = this.odBus;
+      const t = this.now();
+      try {
+        bus.gain.cancelScheduledValues(t);
+        bus.gain.setTargetAtTime(0, t, 0.25);
+        setTimeout(() => {
+          try { bus.disconnect(); } catch { /* already gone */ }
+        }, 1200);
+      } catch { /* ignore */ }
+    }
+    this.odBus = null;
+  }
+
+  /** Wheel tick as a segment whips past the pointer. */
+  odTick(intensity = 0.5): void {
+    this.tone({ freq: 1900, freqEnd: 900, type: 'square', peak: 0.05 + intensity * 0.05, attack: 0.001, decay: 0.05 });
+    this.noise({ peak: 0.06, decay: 0.04, filterFreq: 3600, filterType: 'bandpass', q: 2.5 });
+  }
+
+  /** The wheel ignites: whoosh + drum roll. */
+  odIgnite(): void {
+    this.noise({ peak: 0.2, attack: 0.1, decay: 0.8, filterFreq: 400, filterEnd: 6000, filterType: 'bandpass', q: 1.2 });
+    for (let i = 0; i < 8; i++) {
+      this.tone({ freq: 70 + i * 4, freqEnd: 40, type: 'sine', peak: 0.22, attack: 0.003, decay: 0.16, delay: i * 0.09 });
+    }
+  }
+
+  /** Suspense riser before the wheel settles (durMs long). */
+  odRiser(durMs = 1400): void {
+    const dur = durMs / 1000;
+    this.tone({ freq: 110, freqEnd: 880, type: 'sawtooth', peak: 0.1, attack: dur * 0.9, decay: 0.15 });
+    this.tone({ freq: 55, freqEnd: 440, type: 'triangle', peak: 0.14, attack: dur * 0.9, decay: 0.2 });
+    this.noise({ peak: 0.12, attack: dur * 0.85, decay: 0.25, filterFreq: 800, filterEnd: 7000, filterType: 'bandpass', q: 1.5 });
+    const beats = Math.max(2, Math.round(dur * 3));
+    for (let i = 0; i < beats; i++) {
+      this.tone({ freq: 75, freqEnd: 38, type: 'sine', peak: 0.3, attack: 0.004, decay: 0.2, delay: dur * 0.55 + (i / beats) * dur * 0.45 });
+    }
+  }
+
+  /** Segment result stinger. */
+  odWin(segment: 'rescue' | 'winmult' | 'second' | 'instant' | 'hell' | 'reheat'): void {
+    const dest = this.master;
+    if (!this.ctx || !dest) return;
+    this.odMusicStop();
+    if (segment === 'hell') {
+      this.btone(dest, { freq: 60, freqEnd: 24, type: 'sine', peak: 0.55, attack: 0.005, decay: 1.4 });
+      this.bnoise(dest, { peak: 0.3, attack: 0.01, decay: 1.6, filterFreq: 300, filterEnd: 8000, filterType: 'lowpass' });
+      for (const f of [98, 123.5, 146.8, 196]) {
+        this.btone(dest, { freq: f, freqEnd: f * 2, type: 'sawtooth', peak: 0.08, attack: 0.5, decay: 1.2, delay: 0.15 });
+      }
+    } else if (segment === 'rescue') {
+      const calls: Array<[number, number]> = [[0, 196], [0.35, 196], [0.7, 261.6]];
+      for (const [d, f] of calls) {
+        this.btone(dest, { freq: f, freqEnd: f * 0.98, type: 'sawtooth', peak: 0.14, attack: 0.06, decay: 0.5, delay: d });
+        this.btone(dest, { freq: f / 2, type: 'triangle', peak: 0.1, attack: 0.06, decay: 0.5, delay: d });
+      }
+      this.btone(dest, { freq: 65, freqEnd: 36, type: 'sine', peak: 0.4, attack: 0.005, decay: 0.5, delay: 0.7 });
+    } else if (segment === 'reheat') {
+      this.btone(dest, { freq: 82, freqEnd: 55, type: 'triangle', peak: 0.2, attack: 0.1, decay: 0.9 });
+      this.bnoise(dest, { peak: 0.1, attack: 0.3, decay: 0.8, filterFreq: 3000, filterType: 'highpass' });
+    } else {
+      const run = segment === 'second'
+        ? [293.66, 369.99, 440, 587.33, 739.99, 880]
+        : [392, 523.25, 659.25, 783.99, 1046.5];
+      run.forEach((f, i) => {
+        this.btone(dest, { freq: f, type: 'triangle', peak: 0.14, decay: 0.55, delay: i * 0.1 });
+        this.btone(dest, { freq: f * 2, type: 'sine', peak: 0.06, decay: 0.4, delay: i * 0.1 });
+      });
+      this.btone(dest, { freq: 73.4, freqEnd: 36.7, type: 'sine', peak: 0.42, attack: 0.005, decay: 1.1, delay: run.length * 0.1 });
+      this.bnoise(dest, { peak: 0.16, attack: 0.005, decay: 1.0, filterFreq: 7000, filterType: 'highpass', delay: run.length * 0.1 });
+    }
+  }
+
+  /** Charge milestone: the bar heats a notch. */
+  odChargeK(k: number): void {
+    this.tone({ freq: 300 + k * 500, freqEnd: 500 + k * 700, type: 'triangle', peak: 0.07, attack: 0.02, decay: 0.18 });
+  }
 }
 
 export const audio = new AudioEngine();
